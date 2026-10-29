@@ -1,9 +1,10 @@
 .DS_Store
-# Wird von XcodeGen aus project.yml erzeugt
-*.xcodeproj
-App/Info.plist
-xcuserdata/
-DerivedData/
-.build/
-.swiftpm/
+node_modules/
+.expo/
+dist/
+web-build/
+# Werden von Expo (Continuous Native Generation) erzeugt
+ios/
+android/
+*.tsbuildinfo
 __pycache__/

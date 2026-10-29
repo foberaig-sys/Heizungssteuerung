@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "Heizung",
+    "slug": "heizung",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.example.heizung",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Die App verbindet sich mit dem Regler deiner Wärmepumpe im Heimnetz.",
+        "NSAppTransportSecurity": {
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "package": "com.example.heizung",
+      "adaptiveIcon": {
+        "backgroundColor": "#FF9E00",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
