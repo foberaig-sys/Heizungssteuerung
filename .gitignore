@@ -1,0 +1,9 @@
+.DS_Store
+# Wird von XcodeGen aus project.yml erzeugt
+*.xcodeproj
+App/Info.plist
+xcuserdata/
+DerivedData/
+.build/
+.swiftpm/
+__pycache__/
