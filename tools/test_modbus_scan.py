@@ -66,6 +66,32 @@ class ModbusScanTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertRegex(out.getvalue(), r"401 +478 +478 +47\.8 +47\.8 \(x0,1\)  <==")
 
+    def test_compare_shows_only_changes(self):
+        import io
+        import os
+        import tempfile
+        from contextlib import redirect_stdout
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "vorher.csv")
+            with redirect_stdout(io.StringIO()):
+                modbus_scan.main(["--host", "127.0.0.1", "--port", str(self.port), "--end", "800", "--csv", path])
+            REGISTERS[402] = 490  # am Display Warmwasser-Soll auf 49,0 gestellt
+            REGISTERS[401] = 470
+            try:
+                out = io.StringIO()
+                with redirect_stdout(out):
+                    code = modbus_scan.main(["--host", "127.0.0.1", "--port", str(self.port), "--end", "800",
+                                             "--compare", path])
+            finally:
+                del REGISTERS[402]
+                REGISTERS[401] = 478
+        self.assertEqual(code, 0)
+        text = out.getvalue()
+        self.assertIn("2 Register haben sich", text)
+        self.assertRegex(text, r"401 +478 +470")
+        self.assertRegex(text, r"402 +0 +490 +0\.0 +49\.0")
+        self.assertNotIn("707", text)
+
 
 if __name__ == "__main__":
     unittest.main()

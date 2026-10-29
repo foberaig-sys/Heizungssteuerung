@@ -9,6 +9,9 @@ Beispiele (im Heimnetz, am PC):
     python tools/modbus_scan.py --host 192.168.0.100
     python tools/modbus_scan.py --host 192.168.0.100 --find 22.0 19.5 47.8 9.2
     python tools/modbus_scan.py --host 192.168.0.100 --start 0 --end 2000 --csv register.csv
+    python tools/modbus_scan.py --host 192.168.0.100 --compare register.csv
+        → zeigt nur Register, die sich seit register.csv geändert haben (z. B. nachdem du am
+          Display einen Sollwert verstellt hast). So findet man die Belegung eindeutig.
 
 Bekannt (aus der evcc-Vorlage für M-TEC): 401 Warmwasser oben (x0,1 °C), 601 Puffer (x0,1 °C),
 707 Leistungsaufnahme (W).
@@ -101,6 +104,17 @@ def matches(raw: int, targets: list[float]) -> list[str]:
     return hits
 
 
+def load_csv(path: str) -> dict[int, int]:
+    """Liest eine frühere --csv-Ausgabe. Nicht enthaltene Register hatten den Wert 0."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return {int(row["adresse"]): int(row["roh"]) for row in csv.DictReader(f, delimiter=";")}
+
+
+def changes(old: dict[int, int], new: dict[int, int]) -> list[tuple[int, int, int]]:
+    """(Adresse, alt, neu) für alle Register, deren Wert sich geändert hat."""
+    return [(a, old.get(a, 0), new[a]) for a in sorted(new) if old.get(a, 0) != new[a]]
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Modbus-Register des Wärmepumpen-Reglers auslesen (nur lesen)")
     parser.add_argument("--host", required=True, help="IP-Adresse des Reglers, z. B. 192.168.0.100")
@@ -113,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Werte vom Display, z. B. 22.0 19.5 47.8 (Außentemperatur, Sollwerte …)")
     parser.add_argument("--all", action="store_true", help="auch Register mit Wert 0 anzeigen")
     parser.add_argument("--csv", help="Ergebnis zusätzlich als CSV-Datei speichern")
+    parser.add_argument("--compare", metavar="CSV", help="nur Änderungen gegenüber einer früheren --csv-Datei zeigen")
     args = parser.parse_args(argv)
 
     try:
@@ -127,6 +142,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     finally:
         client.close()
+
+    if args.compare:
+        try:
+            old = load_csv(args.compare)
+        except (OSError, KeyError, ValueError) as err:
+            print(f"Kann {args.compare} nicht lesen: {err}", file=sys.stderr)
+            return 1
+        diff = changes(old, values)
+        print(f"{len(diff)} Register haben sich seit {args.compare} geändert:\n")
+        print(f"{'Adresse':>7}  {'alt':>7}  {'neu':>7}  {'alt x0,1':>9}  {'neu x0,1':>9}")
+        for address, before, after in diff:
+            print(f"{address:>7}  {signed(before):>7}  {signed(after):>7}  {signed(before) / 10:>9.1f}  {signed(after) / 10:>9.1f}")
+        return 0
 
     rows = []
     for address in sorted(values):

@@ -99,3 +99,20 @@ Bekannte Holding-Register laut der M-TEC-Vorlage des Projekts [evcc](https://git
 | 1000 | PV-Überschussleistung (schreibbar) | int16, W |
 
 Die übrige Belegung lässt sich mit `tools/modbus_scan.py` (nur lesend) durch Vergleich mit den Display-Werten finden.
+
+### Erster Scan der eigenen Anlage (vorläufig, noch durch Änderungsvergleich zu bestätigen)
+
+Die Register sind in Blöcken organisiert: Heizkreis *i* ab `50·i` (8 Blöcke 0–399), Warmwasserspeicher ab
+`400 + 50·i`, Puffer ab 600, Wärmepumpe ab 700. Zuordnung durch Vergleich mit dem Statusbericht:
+
+| Register | Wert beim Scan | vermutete Bedeutung |
+|---|---|---|
+| 4 / 54 | 220 | Heizkreis 1/2 Komfort-Temperatur (×0,1 °C), `normalSetTemp` = 22 |
+| 5 / 55 | 195 | Heizkreis 1/2 Absenk-Temperatur (×0,1 °C), `reducedSetTemp` = 19,5 |
+| 7 / 57 | 1 | Heizkreis 1/2 Betriebsart (1 = Automatik) |
+| 8 / 58 | 1 | Heizkreis 1/2 Heizanforderung |
+| 401 | 476 | Warmwasser oben (×0,1 °C) |
+| 402 | 480 | Warmwasser-Soll (×0,1 °C), `normalSetTempMax` = 48 |
+| 403 | 1 | Warmwasser-Betriebsart (1 = Automatik) |
+| 601 | 452 | Puffer oben (×0,1 °C) |
+| 707 | 804 | Leistungsaufnahme Wärmepumpe (W) |
