@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, WebViewProps } from 'react-native-webview';
 
 import { REMOTE_PORTAL_URL, hmiBaseUrl } from '../keba/bridge';
+import { parsePortalMessage } from '../keba/portalAutomation';
 import { useHeating } from '../store';
 import { Button } from '../ui/components';
 import { useTheme } from '../ui/theme';
@@ -13,12 +14,22 @@ import { useTheme } from '../ui/theme';
 const KebaWebView = WebView as unknown as ComponentType<WebViewProps & RefAttributes<WebView>>;
 
 /**
- * Eine einzige WebView für den Fernzugriff:
- * - beim Anmelden bildschirmfüllend (Secomea-Portal → „WebHmi“ → „WWW“),
- * - danach unsichtbar im Hintergrund. Sie hält die Sitzung und führt die API-Aufrufe aus.
+ * Eine einzige WebView für den Fernzugriff. Normalerweise unsichtbar: Sie meldet sich selbst im
+ * Secomea-Portal an, öffnet die HMI, hält die Sitzung und führt die API-Aufrufe aus.
+ * Sichtbar wird sie nur, wenn keine Zugangsdaten gespeichert sind oder die Automatik scheitert.
  */
 export function RemoteHost() {
-  const { remoteStage, remoteSession, bridge, onHmiReached, onHmiLeft, cancelRemoteLogin } = useHeating();
+  const {
+    remoteStage,
+    remoteSession,
+    portalScript,
+    loginNotice,
+    bridge,
+    onHmiReached,
+    onHmiLeft,
+    onPortalMessage,
+    cancelRemoteLogin,
+  } = useHeating();
   const webView = useRef<WebView>(null);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -32,7 +43,7 @@ export function RemoteHost() {
 
   return (
     <View
-      style={visible ? [StyleSheet.absoluteFill, { backgroundColor: theme.background }] : styles.hidden}
+      style={[StyleSheet.absoluteFill, visible ? { backgroundColor: theme.background } : styles.hidden]}
       pointerEvents={visible ? 'auto' : 'none'}
     >
       {visible && (
@@ -42,7 +53,8 @@ export function RemoteHost() {
             <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
           </View>
           <Text style={[styles.hint, { color: theme.secondary }]}>
-            Anmelden, Anlage aufklappen, „WebHmi“ und dann „WWW“ antippen.
+            {loginNotice ??
+              'Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App künftig selbst an. Jetzt: anmelden, Anlage aufklappen, „WebHmi“ und dann „WWW“ antippen.'}
           </Text>
         </View>
       )}
@@ -51,13 +63,22 @@ export function RemoteHost() {
         ref={webView}
         source={{ uri: REMOTE_PORTAL_URL }}
         style={styles.flex}
+        injectedJavaScript={portalScript}
         sharedCookiesEnabled
         javaScriptEnabled
         domStorageEnabled
-        onMessage={(event) => bridge.handleMessage(event.nativeEvent.data)}
+        // „WWW“ öffnet die HMI in einem neuen Fenster; ohne diese Option blockiert iOS den Klick der Automatik.
+        javaScriptCanOpenWindowsAutomatically
+        setSupportMultipleWindows={false}
+        onMessage={(event) => {
+          const data = event.nativeEvent.data;
+          if (bridge.handleMessage(data)) return;
+          const portal = parsePortalMessage(data);
+          if (portal) onPortalMessage(portal);
+        }}
         onLoadEnd={(event) => {
           const isHmi = hmiBaseUrl(event.nativeEvent.url) !== undefined;
-          if (remoteStage === 'login' && isHmi) {
+          if ((remoteStage === 'auto' || remoteStage === 'login') && isHmi) {
             bridge.attach(webView.current);
             onHmiReached();
           } else if (remoteStage === 'connected' && !isHmi) {
@@ -71,8 +92,8 @@ export function RemoteHost() {
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  // Nicht 0×0 und nicht außerhalb des Bildschirms, damit iOS die Seite nicht anhält.
-  hidden: { position: 'absolute', left: 0, bottom: 0, width: 2, height: 2, opacity: 0.01 },
+  // Volle Größe (damit das Portal normal layoutet), aber unsichtbar und ohne Berührungen.
+  hidden: { opacity: 0.01, zIndex: -1 },
   header: { paddingHorizontal: 16, paddingBottom: 10 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 20, fontWeight: '700' },

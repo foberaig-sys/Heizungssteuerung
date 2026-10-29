@@ -17,13 +17,17 @@ Die App spricht direkt mit derselben JSON-Schnittstelle, die auch die WebHMI im 
 
 | Modus | Wie | Wann |
 |---|---|---|
-| **KEBA Fernzugriff** (Standard) | In der App bei `remote.keba.com/app` anmelden, Anlage aufklappen, „WebHmi“ → „WWW“ antippen. Die Portal-Seite verschwindet, die App zeigt ihre eigene Oberfläche. | funktioniert sofort, überall |
+| **KEBA Fernzugriff** (Standard) | Einmal in den Einstellungen Benutzername und Passwort von `remote.keba.com` eintragen. Ab dann meldet sich die App bei jedem Start **unsichtbar selbst** an und öffnet die Anlage – du siehst keine Webseite, nur die App. | funktioniert überall |
 | **Heimnetz / VPN** | IP-Adresse des Reglers eintragen (Router → Geräteliste, z. B. `192.168.1.50`) | schneller, ohne Hersteller-Portal; unterwegs per eigenem VPN |
 
-So funktioniert der Fernzugriff technisch: Die Secomea-Sitzung steckt in Cookies der eingebetteten
-WebView. Die App lässt deshalb eine unsichtbare WebView mit der HMI offen und schickt ihre Anfragen
-über diese WebView ([src/keba/bridge.ts](src/keba/bridge.ts)). Läuft die Sitzung ab, zeigt die App
-„Sitzung abgelaufen“ und du meldest dich mit einem Tipp neu an.
+So funktioniert der Fernzugriff technisch: Die App öffnet eine unsichtbare WebView, meldet sich darin im
+Secomea-Portal an, klappt die Anlage auf, tippt „WebHmi“ und „WWW“ an
+([src/keba/portalAutomation.ts](src/keba/portalAutomation.ts)). Sobald die HMI offen ist, schickt die
+App ihre Anfragen über diese WebView an den Regler ([src/keba/bridge.ts](src/keba/bridge.ts)) und zeigt
+die Werte in der eigenen Oberfläche. Läuft der Tunnel ab, verbindet sie sich still neu.
+
+Klappt die Automatik einmal nicht (z. B. weil KEBA das Portal ändert), zeigt die App die Portal-Seite
+mit einem Hinweis, damit du dich wie gewohnt von Hand verbinden kannst.
 
 ## 1. Testen mit Expo Go (ohne Developer-Konto)
 

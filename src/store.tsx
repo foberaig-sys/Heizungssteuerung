@@ -2,30 +2,42 @@ import { ReactNode, createContext, useCallback, useContext, useMemo, useRef, use
 
 import { WebViewBridge } from './keba/bridge';
 import { KebaClient, KebaError, directPost, normalizeLocalAddress } from './keba/client';
+import { PortalMessage, buildPortalAutomationScript, portalStepLabel } from './keba/portalAutomation';
 import { HeatingSnapshot, KebaTransport, loadSnapshot } from './keba/service';
-import type { Settings } from './settings';
+import { Settings, hasPortalCredentials } from './settings';
 
 export type Phase = 'notConnected' | 'loading' | 'ready' | 'failed' | 'sessionExpired';
 
-/** Zustand der unsichtbaren WebView für den Fernzugriff. */
-export type RemoteStage = 'idle' | 'login' | 'connected';
+/**
+ * Zustand der WebView für den Fernzugriff:
+ * - auto: unsichtbar, die App meldet sich selbst im Portal an,
+ * - login: sichtbar, der Nutzer meldet sich von Hand an (ohne gespeicherte Zugangsdaten oder als Rückfall),
+ * - connected: unsichtbar, die HMI ist offen und die App schickt ihre Anfragen darüber.
+ */
+export type RemoteStage = 'idle' | 'auto' | 'login' | 'connected';
 
 interface HeatingContextValue {
   phase: Phase;
   snapshot?: HeatingSnapshot;
   error?: string;
+  /** Fortschritt beim Verbinden, z. B. „Anmelden bei KEBA …“. */
+  progress: string;
+  /** Hinweis über der sichtbaren Portal-Seite. */
+  loginNotice?: string;
   /** Fehler, der auftritt, während schon Daten angezeigt werden (z. B. Schreibfehler). */
   transientError?: string;
   writing: boolean;
   remoteStage: RemoteStage;
-  /** Erhöht sich bei jeder neuen Anmeldung, damit die WebView frisch startet. */
+  /** Erhöht sich bei jedem neuen Verbindungsaufbau, damit die WebView frisch startet. */
   remoteSession: number;
+  /** Skript für die automatische Anmeldung (nur in Stufe „auto“). */
+  portalScript?: string;
   bridge: WebViewBridge;
-  connectLocal: (settings: Settings) => Promise<void>;
-  startRemoteLogin: () => void;
+  connect: (settings: Settings) => Promise<void>;
   cancelRemoteLogin: () => void;
   onHmiReached: () => void;
   onHmiLeft: () => void;
+  onPortalMessage: (message: PortalMessage) => void;
   refresh: () => Promise<void>;
   perform: (action: (client: KebaTransport) => Promise<void>) => Promise<void>;
   disconnect: () => void;
@@ -41,35 +53,84 @@ export function useHeating(): HeatingContextValue {
 }
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Abgelaufene Sitzung höchstens so oft still erneuern, sonst Endlosschleife bei Portal-Problemen. */
+const AUTO_RECONNECT_INTERVAL_MS = 60_000;
 
 export function HeatingProvider({ children }: { children: ReactNode }) {
   const bridge = useRef(new WebViewBridge()).current;
   const client = useRef<KebaClient | null>(null);
   const refreshing = useRef(false);
+  const settingsRef = useRef<Settings | null>(null);
+  const lastAutoConnect = useRef(0);
+  const snapshotRef = useRef<HeatingSnapshot>(undefined);
 
   const [phase, setPhase] = useState<Phase>('notConnected');
   const [snapshot, setSnapshot] = useState<HeatingSnapshot>();
   const [error, setError] = useState<string>();
+  const [progress, setProgress] = useState('');
+  const [loginNotice, setLoginNotice] = useState<string>();
   const [transientError, setTransientError] = useState<string>();
   const [writing, setWriting] = useState(false);
   const [remoteStage, setRemoteStage] = useState<RemoteStage>('idle');
   const [remoteSession, setRemoteSession] = useState(0);
-  const snapshotRef = useRef<HeatingSnapshot>(undefined);
+  const [portalScript, setPortalScript] = useState<string>();
 
-  const handleError = useCallback((e: unknown) => {
-    const kebaError = e instanceof KebaError ? e : undefined;
-    if (kebaError?.kind === 'sessionExpired') {
-      setPhase('sessionExpired');
-      return;
-    }
-    const message = e instanceof Error ? e.message : String(e);
-    if (snapshotRef.current) {
-      setTransientError(message);
-    } else {
-      setError(message);
-      setPhase('failed');
-    }
+  const fail = useCallback((message: string) => {
+    setError(message);
+    setPhase('failed');
   }, []);
+
+  /** Fernzugriff aufbauen – automatisch mit gespeicherten Zugangsdaten, sonst sichtbar zum Anmelden. */
+  const startRemote = useCallback(
+    (settings: Settings, notice?: string) => {
+      bridge.reset();
+      client.current = null;
+      setRemoteSession((n) => n + 1);
+      if (hasPortalCredentials(settings) && !notice) {
+        lastAutoConnect.current = Date.now();
+        setPortalScript(
+          buildPortalAutomationScript({
+            username: settings.portalUsername.trim(),
+            password: settings.portalPassword,
+            device: settings.portalDevice.trim(),
+          }),
+        );
+        setProgress(portalStepLabel(undefined));
+        setPhase('loading');
+        setRemoteStage('auto');
+      } else {
+        setPortalScript(undefined);
+        setLoginNotice(notice);
+        setRemoteStage('login');
+      }
+    },
+    [bridge],
+  );
+
+  const handleError = useCallback(
+    (e: unknown) => {
+      if (e instanceof KebaError && e.kind === 'sessionExpired') {
+        const settings = settingsRef.current;
+        if (
+          settings?.mode === 'remote' &&
+          hasPortalCredentials(settings) &&
+          Date.now() - lastAutoConnect.current > AUTO_RECONNECT_INTERVAL_MS
+        ) {
+          // Tunnel abgelaufen → still neu verbinden, die angezeigten Daten bleiben solange stehen.
+          startRemote(settings);
+          if (snapshotRef.current) setPhase('ready');
+          return;
+        }
+        setRemoteStage('idle');
+        setPhase('sessionExpired');
+        return;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      if (snapshotRef.current) setTransientError(message);
+      else fail(message);
+    },
+    [fail, startRemote],
+  );
 
   const refresh = useCallback(async () => {
     if (!client.current || refreshing.current) return;
@@ -89,21 +150,31 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
   const start = useCallback(
     async (next: KebaClient) => {
       client.current = next;
-      snapshotRef.current = undefined;
-      setSnapshot(undefined);
       setError(undefined);
-      setPhase('loading');
+      if (!snapshotRef.current) {
+        setProgress('Lade Daten …');
+        setPhase('loading');
+      }
       await refresh();
     },
     [refresh],
   );
 
-  const connectLocal = useCallback(
+  const connect = useCallback(
     async (settings: Settings) => {
+      settingsRef.current = settings;
+      snapshotRef.current = undefined;
+      setSnapshot(undefined);
+      setError(undefined);
+
+      if (settings.mode === 'remote') {
+        startRemote(settings);
+        return;
+      }
+
       const url = normalizeLocalAddress(settings.localAddress);
       if (!url) {
-        setError('Bitte die IP-Adresse des Reglers eintragen.');
-        setPhase('failed');
+        fail('Bitte die IP-Adresse des Reglers eintragen.');
         return;
       }
       setRemoteStage('idle');
@@ -111,22 +182,19 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       const auth = settings.username ? { username: settings.username, password: settings.password } : undefined;
       await start(new KebaClient(directPost(url, auth)));
     },
-    [bridge, start],
+    [bridge, fail, start, startRemote],
   );
 
-  const startRemoteLogin = useCallback(() => {
-    bridge.reset();
-    client.current = null;
-    setRemoteSession((n) => n + 1);
-    setRemoteStage('login');
-  }, [bridge]);
-
   const cancelRemoteLogin = useCallback(() => {
-    setRemoteStage((stage) => (stage === 'login' ? 'idle' : stage));
+    setRemoteStage('idle');
+    setLoginNotice(undefined);
+    if (!snapshotRef.current) setPhase('notConnected');
   }, []);
 
   const onHmiReached = useCallback(() => {
     setRemoteStage('connected');
+    setLoginNotice(undefined);
+    setPortalScript(undefined);
     void start(new KebaClient(bridge.post));
   }, [bridge, start]);
 
@@ -134,9 +202,29 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
     // Die HMI-Seite wurde verlassen (z. B. Weiterleitung zum Login) → Tunnel ist weg.
     bridge.reset('Die Sitzung ist abgelaufen.');
     client.current = null;
-    setRemoteStage('idle');
-    setPhase('sessionExpired');
-  }, [bridge]);
+    handleError(new KebaError('sessionExpired', 'Die Sitzung ist abgelaufen.'));
+  }, [bridge, handleError]);
+
+  const onPortalMessage = useCallback(
+    (message: PortalMessage) => {
+      if ('step' in message) {
+        setProgress(portalStepLabel(message.step));
+        return;
+      }
+      const settings = settingsRef.current;
+      if (message.error === 'loginFailed') {
+        setRemoteStage('idle');
+        fail('Anmeldung bei remote.keba.com fehlgeschlagen. Bitte Benutzername und Passwort in den Einstellungen prüfen.');
+      } else if (settings) {
+        // Das Portal sieht anders aus als erwartet → Seite zeigen, damit man es von Hand machen kann.
+        startRemote(
+          settings,
+          'Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand „WebHmi“ → „WWW“ antippen.',
+        );
+      }
+    },
+    [fail, startRemote],
+  );
 
   const perform = useCallback(
     async (action: (client: KebaTransport) => Promise<void>) => {
@@ -159,34 +247,41 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
   const disconnect = useCallback(() => {
     bridge.reset();
     client.current = null;
+    settingsRef.current = null;
     snapshotRef.current = undefined;
     setSnapshot(undefined);
     setRemoteStage('idle');
     setPhase('notConnected');
   }, [bridge]);
 
+  const clearTransientError = useCallback(() => setTransientError(undefined), []);
+
   const value = useMemo<HeatingContextValue>(
     () => ({
       phase,
       snapshot,
       error,
+      progress,
+      loginNotice,
       transientError,
       writing,
       remoteStage,
       remoteSession,
+      portalScript,
       bridge,
-      connectLocal,
-      startRemoteLogin,
+      connect,
       cancelRemoteLogin,
       onHmiReached,
       onHmiLeft,
+      onPortalMessage,
       refresh,
       perform,
       disconnect,
-      clearTransientError: () => setTransientError(undefined),
+      clearTransientError,
     }),
-    [phase, snapshot, error, transientError, writing, remoteStage, remoteSession, bridge, connectLocal,
-      startRemoteLogin, cancelRemoteLogin, onHmiReached, onHmiLeft, refresh, perform, disconnect],
+    [phase, snapshot, error, progress, loginNotice, transientError, writing, remoteStage, remoteSession,
+      portalScript, bridge, connect, cancelRemoteLogin, onHmiReached, onHmiLeft, onPortalMessage, refresh,
+      perform, disconnect, clearTransientError],
   );
 
   return <HeatingContext.Provider value={value}>{children}</HeatingContext.Provider>;

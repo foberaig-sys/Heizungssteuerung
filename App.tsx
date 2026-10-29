@@ -8,7 +8,7 @@ import { Dashboard } from './src/screens/Dashboard';
 import { RemoteHost } from './src/screens/RemoteHost';
 import type { Route } from './src/screens/routes';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { Settings, defaultSettings, loadSettings } from './src/settings';
+import { Settings, defaultSettings, hasPortalCredentials, loadSettings } from './src/settings';
 import { HeatingProvider, useHeating } from './src/store';
 import { Button, StatusView } from './src/ui/components';
 import { useTheme } from './src/ui/theme';
@@ -34,11 +34,12 @@ function Main() {
   const navigate = (next: Route) => setStack((s) => [...s, next]);
   const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
 
-  // Einstellungen laden und im Heimnetz-Modus direkt verbinden.
+  // Einstellungen laden und – wenn alles hinterlegt ist – sofort verbinden, ohne dass eine Webseite erscheint.
   useEffect(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
-      if (loaded.mode === 'local' && loaded.localAddress) void heating.connectLocal(loaded);
+      const ready = loaded.mode === 'remote' ? hasPortalCredentials(loaded) : loaded.localAddress !== '';
+      if (ready) void heating.connect(loaded);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -81,8 +82,8 @@ function Main() {
   }, [heating.phase, route.name, stack.length]);
 
   const connect = () => {
-    if (settings.mode === 'remote') heating.startRemoteLogin();
-    else if (settings.localAddress) void heating.connectLocal(settings);
+    const ready = settings.mode === 'remote' ? hasPortalCredentials(settings) : settings.localAddress !== '';
+    if (ready) void heating.connect(settings);
     else navigate({ name: 'settings' });
   };
 
@@ -130,7 +131,7 @@ function Main() {
         ) : route.name === 'hotWater' ? (
           <HotWaterScreen index={route.index} />
         ) : (
-          <Home connect={connect} navigate={navigate} remote={settings.mode === 'remote'} />
+          <Home connect={connect} navigate={navigate} />
         )}
       </View>
 
@@ -139,36 +140,34 @@ function Main() {
   );
 }
 
-function Home({ connect, navigate, remote }: { connect: () => void; navigate: (r: Route) => void; remote: boolean }) {
-  const { phase, error, refresh } = useHeating();
-  const connectTitle = remote ? 'Über KEBA Fernzugriff verbinden' : 'Verbinden';
+function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route) => void }) {
+  const { phase, error, progress } = useHeating();
 
   switch (phase) {
     case 'ready':
       return <Dashboard navigate={navigate} />;
     case 'loading':
-      return <StatusView title="Lade Daten …" loading />;
+      return <StatusView title={progress || 'Lade Daten …'} loading />;
     case 'failed':
       return (
         <StatusView title="Keine Verbindung" message={error}>
-          <Button title="Erneut versuchen" onPress={() => void refresh()} />
+          <Button title="Erneut versuchen" onPress={connect} />
           <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: 'settings' })} />
         </StatusView>
       );
     case 'sessionExpired':
       return (
-        <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen. Bitte neu verbinden.">
-          <Button title={connectTitle} onPress={connect} />
+        <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen.">
+          <Button title="Neu verbinden" onPress={connect} />
         </StatusView>
       );
     case 'notConnected':
       return (
         <StatusView
           title="Nicht verbunden"
-          message="Verbinde die App mit deiner Wärmepumpe – über den KEBA Fernzugriff oder direkt im Heimnetz."
+          message="Trage einmal deinen Zugang zu remote.keba.com ein. Danach verbindet sich die App bei jedem Start von selbst."
         >
-          <Button title={connectTitle} onPress={connect} />
-          <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: 'settings' })} />
+          <Button title="Einrichten" onPress={() => navigate({ name: 'settings' })} />
         </StatusView>
       );
   }

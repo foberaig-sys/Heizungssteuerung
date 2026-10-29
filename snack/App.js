@@ -387,6 +387,198 @@ function buildFetchScript(id, path, body) {
 })(); true;`;
 }
 
+// src/keba/portalAutomation.ts
+function parsePortalMessage(data) {
+  try {
+    const message = JSON.parse(data);
+    return message?.kebaPortal === true ? message : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function portalStepLabel(step) {
+  switch (step) {
+    case "login":
+      return "Anmelden bei KEBA \u2026";
+    case "expand":
+    case "device":
+      return "Anlage wird gesucht \u2026";
+    case "www":
+      return "Verbindung zur Heizung wird aufgebaut \u2026";
+    default:
+      return "Verbinde mit KEBA \u2026";
+  }
+}
+function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
+  const config = JSON.stringify({
+    username: credentials.username,
+    password: credentials.password,
+    device: (credentials.device || "WebHmi").toLowerCase(),
+    timeout: timeoutSeconds
+  });
+  return `(function(){
+  // Auf der HMI selbst (eigener Port) nichts tun.
+  if (window.location.port && window.location.port !== '443') return;
+  if (window.__kebaPortal) return;
+  window.__kebaPortal = true;
+  var cfg = ${config};
+  var started = Date.now();
+  var last = { login: 0, expand: 0, device: 0, www: 0 };
+  var loginAttempts = 0;
+  var timer;
+
+  function send(m) {
+    m.kebaPortal = true;
+    try { window.ReactNativeWebView.postMessage(JSON.stringify(m)); } catch (e) {}
+  }
+  function stop() { clearInterval(timer); }
+  function since(key, ms) { return Date.now() - last[key] > ms; }
+
+  // Sichtbar = kein Vorfahre mit display:none / visibility:hidden (jQuery Mobile versteckt alte Seiten so).
+  function visible(el) {
+    for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+      if (n.hidden) return false;
+      var s = window.getComputedStyle(n);
+      if (s.display === 'none' || s.visibility === 'hidden') return false;
+    }
+    return true;
+  }
+  function text(el) { return (el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim(); }
+  // Das innerste sichtbare Element, dessen Text passt.
+  function find(test) {
+    var all = document.body ? document.body.querySelectorAll('*') : [];
+    var hit = null;
+    for (var i = 0; i < all.length; i++) {
+      var el = all[i];
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+      if (test(text(el).toLowerCase(), el) && visible(el)) {
+        if (!hit || hit.contains(el)) hit = el;
+      }
+    }
+    return hit;
+  }
+  function clickable(el) { return el.closest('a,button,li,[onclick],[role=button]') || el; }
+  function setValue(input, value) {
+    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    setter.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  function step() {
+    if (Date.now() - started > cfg.timeout * 1000) {
+      stop();
+      send({ error: 'timeout', detail: (document.body ? text(document.body) : '').slice(0, 300) });
+      return;
+    }
+
+    // 1. Login-Formular
+    var password = Array.prototype.filter.call(document.querySelectorAll('input[type=password]'), visible)[0];
+    if (password) {
+      if (!since('login', 8000)) return;
+      if (loginAttempts >= 2) {
+        stop();
+        send({ error: 'loginFailed', detail: text(document.body).slice(0, 300) });
+        return;
+      }
+      var fields = Array.prototype.filter.call(document.querySelectorAll('input'), function (i) {
+        var t = (i.getAttribute('type') || 'text').toLowerCase();
+        return visible(i) && (t === 'text' || t === 'email');
+      });
+      if (fields[0]) setValue(fields[0], cfg.username);
+      setValue(password, cfg.password);
+      last.login = Date.now();
+      loginAttempts++;
+      send({ step: 'login' });
+      var button = find(function (t, el) {
+        return /^(login|log in|anmelden|sign in)$/.test(t) || (el.tagName === 'INPUT' && /submit|button/i.test(el.type) && /login|anmelden/i.test(el.value));
+      });
+      if (button) clickable(button).click();
+      else if (password.form) password.form.submit();
+      return;
+    }
+
+    // 3. Ger\xE4teseite mit \u201EWWW\u201C-Knopf
+    var www = find(function (t) { return t === 'www'; });
+    if (www) {
+      if (!since('www', 6000)) return;
+      last.www = Date.now();
+      send({ step: 'www' });
+      var link = www.closest('a');
+      if (link && link.href && /:\\d+/.test(link.href.replace(/^https?:\\/\\//, ''))) {
+        window.location.href = link.href;
+      } else {
+        clickable(www).click();
+      }
+      return;
+    }
+
+    // 2. Ger\xE4teliste: Eintrag \u201E\u2026 WebHmi\u201C
+    var device = find(function (t) { return t.indexOf(cfg.device) !== -1 && t.length < 160; });
+    if (device) {
+      if (!since('device', 6000)) return;
+      last.device = Date.now();
+      send({ step: 'device' });
+      clickable(device).click();
+      return;
+    }
+
+    // Gruppe zugeklappt \u2192 aufklappen (jQuery Mobile \u201Ecollapsible\u201C)
+    if (since('expand', 4000)) {
+      var heads = document.querySelectorAll('.ui-collapsible-collapsed .ui-collapsible-heading-toggle, .ui-collapsible-heading-collapsed a, [data-role=collapsible] > h1, [data-role=collapsible] > h2, [data-role=collapsible] > h3, [data-role=collapsible] > h4');
+      var head = Array.prototype.filter.call(heads, visible)[0];
+      if (head) {
+        last.expand = Date.now();
+        send({ step: 'expand' });
+        (head.querySelector('a,button') || head).click();
+      }
+    }
+  }
+
+  timer = setInterval(step, 1000);
+  step();
+})(); true;`;
+}
+
+// src/settings.ts
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as SecureStore from "expo-secure-store";
+var defaultSettings = {
+  mode: "remote",
+  portalUsername: "",
+  portalPassword: "",
+  portalDevice: "WebHmi",
+  localAddress: "",
+  username: "",
+  password: ""
+};
+var hasPortalCredentials = (s) => s.portalUsername.trim() !== "" && s.portalPassword !== "";
+var KEY = "heizung.settings";
+var SECRET_KEYS = { password: "heizung.password", portalPassword: "heizung.portalPassword" };
+async function loadSettings() {
+  try {
+    const raw = await AsyncStorage.getItem(KEY);
+    const stored = raw ? JSON.parse(raw) : {};
+    const password = await SecureStore.getItemAsync(SECRET_KEYS.password) ?? "";
+    const portalPassword = await SecureStore.getItemAsync(SECRET_KEYS.portalPassword) ?? "";
+    return { ...defaultSettings, ...stored, password, portalPassword };
+  } catch {
+    return defaultSettings;
+  }
+}
+async function saveSettings(settings) {
+  const { password, portalPassword, ...rest } = settings;
+  try {
+    await AsyncStorage.setItem(KEY, JSON.stringify(rest));
+    for (const [field, key] of Object.entries(SECRET_KEYS)) {
+      const value = field === "password" ? password : portalPassword;
+      if (value) await SecureStore.setItemAsync(key, value);
+      else await SecureStore.deleteItemAsync(key);
+    }
+  } catch {
+  }
+}
+
 // src/store.tsx
 var HeatingContext = createContext(null);
 function useHeating() {
@@ -395,32 +587,72 @@ function useHeating() {
   return value;
 }
 var wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+var AUTO_RECONNECT_INTERVAL_MS = 6e4;
 function HeatingProvider({ children }) {
   const bridge = useRef(new WebViewBridge()).current;
   const client = useRef(null);
   const refreshing = useRef(false);
+  const settingsRef = useRef(null);
+  const lastAutoConnect = useRef(0);
+  const snapshotRef = useRef(void 0);
   const [phase, setPhase] = useState("notConnected");
   const [snapshot, setSnapshot] = useState();
   const [error, setError] = useState();
+  const [progress, setProgress] = useState("");
+  const [loginNotice, setLoginNotice] = useState();
   const [transientError, setTransientError] = useState();
   const [writing, setWriting] = useState(false);
   const [remoteStage, setRemoteStage] = useState("idle");
   const [remoteSession, setRemoteSession] = useState(0);
-  const snapshotRef = useRef(void 0);
-  const handleError = useCallback((e) => {
-    const kebaError = e instanceof KebaError ? e : void 0;
-    if (kebaError?.kind === "sessionExpired") {
-      setPhase("sessionExpired");
-      return;
-    }
-    const message = e instanceof Error ? e.message : String(e);
-    if (snapshotRef.current) {
-      setTransientError(message);
-    } else {
-      setError(message);
-      setPhase("failed");
-    }
+  const [portalScript, setPortalScript] = useState();
+  const fail = useCallback((message) => {
+    setError(message);
+    setPhase("failed");
   }, []);
+  const startRemote = useCallback(
+    (settings, notice) => {
+      bridge.reset();
+      client.current = null;
+      setRemoteSession((n) => n + 1);
+      if (hasPortalCredentials(settings) && !notice) {
+        lastAutoConnect.current = Date.now();
+        setPortalScript(
+          buildPortalAutomationScript({
+            username: settings.portalUsername.trim(),
+            password: settings.portalPassword,
+            device: settings.portalDevice.trim()
+          })
+        );
+        setProgress(portalStepLabel(void 0));
+        setPhase("loading");
+        setRemoteStage("auto");
+      } else {
+        setPortalScript(void 0);
+        setLoginNotice(notice);
+        setRemoteStage("login");
+      }
+    },
+    [bridge]
+  );
+  const handleError = useCallback(
+    (e) => {
+      if (e instanceof KebaError && e.kind === "sessionExpired") {
+        const settings = settingsRef.current;
+        if (settings?.mode === "remote" && hasPortalCredentials(settings) && Date.now() - lastAutoConnect.current > AUTO_RECONNECT_INTERVAL_MS) {
+          startRemote(settings);
+          if (snapshotRef.current) setPhase("ready");
+          return;
+        }
+        setRemoteStage("idle");
+        setPhase("sessionExpired");
+        return;
+      }
+      const message = e instanceof Error ? e.message : String(e);
+      if (snapshotRef.current) setTransientError(message);
+      else fail(message);
+    },
+    [fail, startRemote]
+  );
   const refresh = useCallback(async () => {
     if (!client.current || refreshing.current) return;
     refreshing.current = true;
@@ -438,20 +670,28 @@ function HeatingProvider({ children }) {
   const start = useCallback(
     async (next) => {
       client.current = next;
-      snapshotRef.current = void 0;
-      setSnapshot(void 0);
       setError(void 0);
-      setPhase("loading");
+      if (!snapshotRef.current) {
+        setProgress("Lade Daten \u2026");
+        setPhase("loading");
+      }
       await refresh();
     },
     [refresh]
   );
-  const connectLocal = useCallback(
+  const connect = useCallback(
     async (settings) => {
+      settingsRef.current = settings;
+      snapshotRef.current = void 0;
+      setSnapshot(void 0);
+      setError(void 0);
+      if (settings.mode === "remote") {
+        startRemote(settings);
+        return;
+      }
       const url = normalizeLocalAddress(settings.localAddress);
       if (!url) {
-        setError("Bitte die IP-Adresse des Reglers eintragen.");
-        setPhase("failed");
+        fail("Bitte die IP-Adresse des Reglers eintragen.");
         return;
       }
       setRemoteStage("idle");
@@ -459,27 +699,43 @@ function HeatingProvider({ children }) {
       const auth = settings.username ? { username: settings.username, password: settings.password } : void 0;
       await start(new KebaClient(directPost(url, auth)));
     },
-    [bridge, start]
+    [bridge, fail, start, startRemote]
   );
-  const startRemoteLogin = useCallback(() => {
-    bridge.reset();
-    client.current = null;
-    setRemoteSession((n) => n + 1);
-    setRemoteStage("login");
-  }, [bridge]);
   const cancelRemoteLogin = useCallback(() => {
-    setRemoteStage((stage) => stage === "login" ? "idle" : stage);
+    setRemoteStage("idle");
+    setLoginNotice(void 0);
+    if (!snapshotRef.current) setPhase("notConnected");
   }, []);
   const onHmiReached = useCallback(() => {
     setRemoteStage("connected");
+    setLoginNotice(void 0);
+    setPortalScript(void 0);
     void start(new KebaClient(bridge.post));
   }, [bridge, start]);
   const onHmiLeft = useCallback(() => {
     bridge.reset("Die Sitzung ist abgelaufen.");
     client.current = null;
-    setRemoteStage("idle");
-    setPhase("sessionExpired");
-  }, [bridge]);
+    handleError(new KebaError("sessionExpired", "Die Sitzung ist abgelaufen."));
+  }, [bridge, handleError]);
+  const onPortalMessage = useCallback(
+    (message) => {
+      if ("step" in message) {
+        setProgress(portalStepLabel(message.step));
+        return;
+      }
+      const settings = settingsRef.current;
+      if (message.error === "loginFailed") {
+        setRemoteStage("idle");
+        fail("Anmeldung bei remote.keba.com fehlgeschlagen. Bitte Benutzername und Passwort in den Einstellungen pr\xFCfen.");
+      } else if (settings) {
+        startRemote(
+          settings,
+          "Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand \u201EWebHmi\u201C \u2192 \u201EWWW\u201C antippen."
+        );
+      }
+    },
+    [fail, startRemote]
+  );
   const perform = useCallback(
     async (action) => {
       if (!client.current) return;
@@ -499,48 +755,57 @@ function HeatingProvider({ children }) {
   const disconnect = useCallback(() => {
     bridge.reset();
     client.current = null;
+    settingsRef.current = null;
     snapshotRef.current = void 0;
     setSnapshot(void 0);
     setRemoteStage("idle");
     setPhase("notConnected");
   }, [bridge]);
+  const clearTransientError = useCallback(() => setTransientError(void 0), []);
   const value = useMemo(
     () => ({
       phase,
       snapshot,
       error,
+      progress,
+      loginNotice,
       transientError,
       writing,
       remoteStage,
       remoteSession,
+      portalScript,
       bridge,
-      connectLocal,
-      startRemoteLogin,
+      connect,
       cancelRemoteLogin,
       onHmiReached,
       onHmiLeft,
+      onPortalMessage,
       refresh,
       perform,
       disconnect,
-      clearTransientError: () => setTransientError(void 0)
+      clearTransientError
     }),
     [
       phase,
       snapshot,
       error,
+      progress,
+      loginNotice,
       transientError,
       writing,
       remoteStage,
       remoteSession,
+      portalScript,
       bridge,
-      connectLocal,
-      startRemoteLogin,
+      connect,
       cancelRemoteLogin,
       onHmiReached,
       onHmiLeft,
+      onPortalMessage,
       refresh,
       perform,
-      disconnect
+      disconnect,
+      clearTransientError
     ]
   );
   return <HeatingContext.Provider value={value}>{children}</HeatingContext.Provider>;
@@ -1006,7 +1271,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 var KebaWebView = WebView;
 function RemoteHost() {
-  const { remoteStage, remoteSession, bridge, onHmiReached, onHmiLeft, cancelRemoteLogin } = useHeating();
+  const {
+    remoteStage,
+    remoteSession,
+    portalScript,
+    loginNotice,
+    bridge,
+    onHmiReached,
+    onHmiLeft,
+    onPortalMessage,
+    cancelRemoteLogin
+  } = useHeating();
   const webView = useRef2(null);
   const theme = useTheme();
   const insets = useSafeAreaInsets();
@@ -1016,7 +1291,7 @@ function RemoteHost() {
   }, [bridge, remoteStage]);
   if (remoteStage === "idle") return null;
   return <View3
-    style={visible ? [StyleSheet4.absoluteFill, { backgroundColor: theme.background }] : styles4.hidden}
+    style={[StyleSheet4.absoluteFill, visible ? { backgroundColor: theme.background } : styles4.hidden]}
     pointerEvents={visible ? "auto" : "none"}
   >
       {visible && <View3 style={[styles4.header, { paddingTop: insets.top + 8, backgroundColor: theme.card }]}>
@@ -1025,7 +1300,7 @@ function RemoteHost() {
             <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
           </View3>
           <Text4 style={[styles4.hint, { color: theme.secondary }]}>
-            Anmelden, Anlage aufklappen, „WebHmi“ und dann „WWW“ antippen.
+            {loginNotice ?? "Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App k\xFCnftig selbst an. Jetzt: anmelden, Anlage aufklappen, \u201EWebHmi\u201C und dann \u201EWWW\u201C antippen."}
           </Text4>
         </View3>}
       <KebaWebView
@@ -1033,13 +1308,21 @@ function RemoteHost() {
     ref={webView}
     source={{ uri: REMOTE_PORTAL_URL }}
     style={styles4.flex}
+    injectedJavaScript={portalScript}
     sharedCookiesEnabled
     javaScriptEnabled
     domStorageEnabled
-    onMessage={(event) => bridge.handleMessage(event.nativeEvent.data)}
+    javaScriptCanOpenWindowsAutomatically
+    setSupportMultipleWindows={false}
+    onMessage={(event) => {
+      const data = event.nativeEvent.data;
+      if (bridge.handleMessage(data)) return;
+      const portal = parsePortalMessage(data);
+      if (portal) onPortalMessage(portal);
+    }}
     onLoadEnd={(event) => {
       const isHmi = hmiBaseUrl(event.nativeEvent.url) !== void 0;
-      if (remoteStage === "login" && isHmi) {
+      if ((remoteStage === "auto" || remoteStage === "login") && isHmi) {
         bridge.attach(webView.current);
         onHmiReached();
       } else if (remoteStage === "connected" && !isHmi) {
@@ -1051,8 +1334,8 @@ function RemoteHost() {
 }
 var styles4 = StyleSheet4.create({
   flex: { flex: 1 },
-  // Nicht 0×0 und nicht außerhalb des Bildschirms, damit iOS die Seite nicht anhält.
-  hidden: { position: "absolute", left: 0, bottom: 0, width: 2, height: 2, opacity: 0.01 },
+  // Volle Größe (damit das Portal normal layoutet), aber unsichtbar und ohne Berührungen.
+  hidden: { opacity: 0.01, zIndex: -1 },
   header: { paddingHorizontal: 16, paddingBottom: 10 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 20, fontWeight: "700" },
@@ -1062,51 +1345,22 @@ var styles4 = StyleSheet4.create({
 // src/screens/SettingsScreen.tsx
 import { useState as useState4 } from "react";
 import { Pressable as Pressable3, ScrollView as ScrollView3, StyleSheet as StyleSheet5, Text as Text5, TextInput, View as View4 } from "react-native";
-
-// src/settings.ts
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
-var defaultSettings = { mode: "remote", localAddress: "", username: "", password: "" };
-var KEY = "heizung.settings";
-var PASSWORD_KEY = "heizung.password";
-async function loadSettings() {
-  try {
-    const raw = await AsyncStorage.getItem(KEY);
-    const stored = raw ? JSON.parse(raw) : {};
-    const password = await SecureStore.getItemAsync(PASSWORD_KEY) ?? "";
-    return { ...defaultSettings, ...stored, password };
-  } catch {
-    return defaultSettings;
-  }
-}
-async function saveSettings(settings) {
-  const { password, ...rest } = settings;
-  try {
-    await AsyncStorage.setItem(KEY, JSON.stringify(rest));
-    if (password) {
-      await SecureStore.setItemAsync(PASSWORD_KEY, password);
-    } else {
-      await SecureStore.deleteItemAsync(PASSWORD_KEY);
-    }
-  } catch {
-  }
-}
-
-// src/screens/SettingsScreen.tsx
 function SettingsScreen({
   settings,
   onChange,
   onDone
 }) {
-  const { connectLocal, startRemoteLogin, disconnect, phase } = useHeating();
+  const { connect, disconnect, phase } = useHeating();
   const theme = useTheme();
   const [draft, setDraft] = useState4(settings);
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
-  const persist = async () => {
+  const saveAndConnect = async () => {
     onChange(draft);
     await saveSettings(draft);
+    onDone();
+    await connect(draft);
   };
-  const inputStyle = [styles5.input, { color: theme.text, borderBottomColor: theme.separator }];
+  const canConnect = draft.mode === "remote" ? true : normalizeLocalAddress(draft.localAddress) !== void 0;
   return <ScrollView3
     style={{ backgroundColor: theme.background }}
     contentContainerStyle={styles5.content}
@@ -1124,63 +1378,87 @@ function SettingsScreen({
             </Text5>
           </Pressable3>)}
       </View4>
-      <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
-        {draft.mode === "remote" ? "Nutzt deinen Zugang zu remote.keba.com. Du meldest dich in der App im Portal an, danach steuert die App die Heizung direkt. Die Sitzung l\xE4uft nach einiger Zeit ab." : "Direkt mit dem Regler \u2013 schneller und ohne Hersteller-Portal. Funktioniert im WLAN zuhause oder unterwegs \xFCber ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale)."}
-      </Text5>
 
-      {draft.mode === "local" ? <>
+      {draft.mode === "remote" ? <>
+          <SectionTitle>Zugang remote.keba.com</SectionTitle>
+          <Card style={styles5.form}>
+            <Field
+    value={draft.portalUsername}
+    onChangeText={(portalUsername) => update({ portalUsername })}
+    placeholder="Benutzername"
+    textContentType="username"
+    autoComplete="username"
+  />
+            <Field
+    value={draft.portalPassword}
+    onChangeText={(portalPassword) => update({ portalPassword })}
+    placeholder="Passwort"
+    secureTextEntry
+    textContentType="password"
+    autoComplete="password"
+  />
+            <Field
+    value={draft.portalDevice}
+    onChangeText={(portalDevice) => update({ portalDevice })}
+    placeholder="Geräteeintrag (Standard: WebHmi)"
+    last
+  />
+          </Card>
+          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+            Dieselben Daten wie auf remote.keba.com/app. Die App meldet sich damit unsichtbar selbst an,
+            öffnet „WebHmi“ und steuert die Heizung direkt – du siehst die Portal-Seite nicht mehr.
+            Das Passwort liegt verschlüsselt im iOS-Schlüsselbund.
+          </Text5>
+        </> : <>
           <SectionTitle>Regler im Heimnetz</SectionTitle>
           <Card style={styles5.form}>
-            <TextInput
-    style={inputStyle}
+            <Field
     value={draft.localAddress}
     onChangeText={(localAddress) => update({ localAddress })}
     placeholder="IP-Adresse, z. B. 192.168.1.50"
-    placeholderTextColor={theme.secondary}
-    autoCapitalize="none"
-    autoCorrect={false}
     keyboardType="url"
   />
-            <TextInput
-    style={inputStyle}
+            <Field
     value={draft.username}
     onChangeText={(username) => update({ username })}
     placeholder="Benutzer (falls nötig)"
-    placeholderTextColor={theme.secondary}
-    autoCapitalize="none"
-    autoCorrect={false}
   />
-            <TextInput
-    style={[...inputStyle, { borderBottomWidth: 0 }]}
+            <Field
     value={draft.password}
     onChangeText={(password) => update({ password })}
     placeholder="Passwort (falls nötig)"
-    placeholderTextColor={theme.secondary}
     secureTextEntry
+    last
   />
           </Card>
-          <Button
-    title="Verbinden"
+          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+            Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
+            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).
+          </Text5>
+        </>}
+
+      <Button
+    title={draft.mode === "remote" && !hasPortalCredentials(draft) ? "Ohne Speichern im Portal anmelden" : "Speichern & verbinden"}
     style={styles5.action}
-    disabled={!normalizeLocalAddress(draft.localAddress)}
-    onPress={async () => {
-      await persist();
-      onDone();
-      await connectLocal(draft);
-    }}
+    disabled={!canConnect}
+    onPress={saveAndConnect}
   />
-        </> : <Button
-    title="Bei remote.keba.com anmelden"
-    style={styles5.action}
-    onPress={async () => {
-      await persist();
-      onDone();
-      startRemoteLogin();
-    }}
-  />}
 
       {phase !== "notConnected" && <Button title="Verbindung trennen" kind="danger" style={styles5.action} onPress={disconnect} />}
     </ScrollView3>;
+}
+function Field({ last, ...props }) {
+  const theme = useTheme();
+  return <TextInput
+    placeholderTextColor={theme.secondary}
+    autoCapitalize="none"
+    autoCorrect={false}
+    {...props}
+    style={[
+      styles5.input,
+      { color: theme.text, borderBottomColor: theme.separator, borderBottomWidth: last ? 0 : StyleSheet5.hairlineWidth }
+    ]}
+  />;
 }
 var styles5 = StyleSheet5.create({
   content: { padding: 16, paddingBottom: 40 },
@@ -1189,7 +1467,7 @@ var styles5 = StyleSheet5.create({
   segmentText: { fontSize: 15, fontWeight: "600" },
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },
   form: { paddingVertical: 0 },
-  input: { fontSize: 17, paddingVertical: 14, borderBottomWidth: StyleSheet5.hairlineWidth },
+  input: { fontSize: 17, paddingVertical: 14 },
   action: { marginTop: 20 }
 });
 
@@ -1213,7 +1491,8 @@ function Main() {
   useEffect3(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
-      if (loaded.mode === "local" && loaded.localAddress) void heating.connectLocal(loaded);
+      const ready = loaded.mode === "remote" ? hasPortalCredentials(loaded) : loaded.localAddress !== "";
+      if (ready) void heating.connect(loaded);
     });
   }, []);
   useEffect3(() => {
@@ -1247,8 +1526,8 @@ function Main() {
     }
   }, [heating.phase, route.name, stack.length]);
   const connect = () => {
-    if (settings.mode === "remote") heating.startRemoteLogin();
-    else if (settings.localAddress) void heating.connectLocal(settings);
+    const ready = settings.mode === "remote" ? hasPortalCredentials(settings) : settings.localAddress !== "";
+    if (ready) void heating.connect(settings);
     else navigate({ name: "settings" });
   };
   const title = (() => {
@@ -1282,36 +1561,34 @@ function Main() {
       </View5>
 
       <View5 style={[styles6.body, { paddingBottom: insets.bottom }]}>
-        {route.name === "settings" ? <SettingsScreen settings={settings} onChange={setSettings} onDone={back} /> : route.name === "circuit" ? <HeatCircuitScreen index={route.index} /> : route.name === "hotWater" ? <HotWaterScreen index={route.index} /> : <Home connect={connect} navigate={navigate} remote={settings.mode === "remote"} />}
+        {route.name === "settings" ? <SettingsScreen settings={settings} onChange={setSettings} onDone={back} /> : route.name === "circuit" ? <HeatCircuitScreen index={route.index} /> : route.name === "hotWater" ? <HotWaterScreen index={route.index} /> : <Home connect={connect} navigate={navigate} />}
       </View5>
 
       <RemoteHost />
     </View5>;
 }
-function Home({ connect, navigate, remote }) {
-  const { phase, error, refresh } = useHeating();
-  const connectTitle = remote ? "\xDCber KEBA Fernzugriff verbinden" : "Verbinden";
+function Home({ connect, navigate }) {
+  const { phase, error, progress } = useHeating();
   switch (phase) {
     case "ready":
       return <Dashboard navigate={navigate} />;
     case "loading":
-      return <StatusView title="Lade Daten …" loading />;
+      return <StatusView title={progress || "Lade Daten \u2026"} loading />;
     case "failed":
       return <StatusView title="Keine Verbindung" message={error}>
-          <Button title="Erneut versuchen" onPress={() => void refresh()} />
+          <Button title="Erneut versuchen" onPress={connect} />
           <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: "settings" })} />
         </StatusView>;
     case "sessionExpired":
-      return <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen. Bitte neu verbinden.">
-          <Button title={connectTitle} onPress={connect} />
+      return <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen.">
+          <Button title="Neu verbinden" onPress={connect} />
         </StatusView>;
     case "notConnected":
       return <StatusView
         title="Nicht verbunden"
-        message="Verbinde die App mit deiner Wärmepumpe – über den KEBA Fernzugriff oder direkt im Heimnetz."
+        message="Trage einmal deinen Zugang zu remote.keba.com ein. Danach verbindet sich die App bei jedem Start von selbst."
       >
-          <Button title={connectTitle} onPress={connect} />
-          <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: "settings" })} />
+          <Button title="Einrichten" onPress={() => navigate({ name: "settings" })} />
         </StatusView>;
   }
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
 import { normalizeLocalAddress } from '../keba/client';
-import { ConnectionMode, Settings, saveSettings } from '../settings';
+import { ConnectionMode, Settings, hasPortalCredentials, saveSettings } from '../settings';
 import { useHeating } from '../store';
 import { Button, Card, SectionTitle } from '../ui/components';
 import { useTheme } from '../ui/theme';
@@ -16,17 +16,19 @@ export function SettingsScreen({
   onChange: (settings: Settings) => void;
   onDone: () => void;
 }) {
-  const { connectLocal, startRemoteLogin, disconnect, phase } = useHeating();
+  const { connect, disconnect, phase } = useHeating();
   const theme = useTheme();
   const [draft, setDraft] = useState(settings);
   const update = (patch: Partial<Settings>) => setDraft((d) => ({ ...d, ...patch }));
 
-  const persist = async () => {
+  const saveAndConnect = async () => {
     onChange(draft);
     await saveSettings(draft);
+    onDone();
+    await connect(draft);
   };
 
-  const inputStyle = [styles.input, { color: theme.text, borderBottomColor: theme.separator }];
+  const canConnect = draft.mode === 'remote' ? true : normalizeLocalAddress(draft.localAddress) !== undefined;
 
   return (
     <ScrollView
@@ -48,71 +50,96 @@ export function SettingsScreen({
           </Pressable>
         ))}
       </View>
-      <Text style={[styles.footnote, { color: theme.secondary }]}>
-        {draft.mode === 'remote'
-          ? 'Nutzt deinen Zugang zu remote.keba.com. Du meldest dich in der App im Portal an, danach steuert die App die Heizung direkt. Die Sitzung läuft nach einiger Zeit ab.'
-          : 'Direkt mit dem Regler – schneller und ohne Hersteller-Portal. Funktioniert im WLAN zuhause oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).'}
-      </Text>
 
-      {draft.mode === 'local' ? (
+      {draft.mode === 'remote' ? (
+        <>
+          <SectionTitle>Zugang remote.keba.com</SectionTitle>
+          <Card style={styles.form}>
+            <Field
+              value={draft.portalUsername}
+              onChangeText={(portalUsername) => update({ portalUsername })}
+              placeholder="Benutzername"
+              textContentType="username"
+              autoComplete="username"
+            />
+            <Field
+              value={draft.portalPassword}
+              onChangeText={(portalPassword) => update({ portalPassword })}
+              placeholder="Passwort"
+              secureTextEntry
+              textContentType="password"
+              autoComplete="password"
+            />
+            <Field
+              value={draft.portalDevice}
+              onChangeText={(portalDevice) => update({ portalDevice })}
+              placeholder="Geräteeintrag (Standard: WebHmi)"
+              last
+            />
+          </Card>
+          <Text style={[styles.footnote, { color: theme.secondary }]}>
+            Dieselben Daten wie auf remote.keba.com/app. Die App meldet sich damit unsichtbar selbst an,
+            öffnet „WebHmi“ und steuert die Heizung direkt – du siehst die Portal-Seite nicht mehr.
+            Das Passwort liegt verschlüsselt im iOS-Schlüsselbund.
+          </Text>
+        </>
+      ) : (
         <>
           <SectionTitle>Regler im Heimnetz</SectionTitle>
           <Card style={styles.form}>
-            <TextInput
-              style={inputStyle}
+            <Field
               value={draft.localAddress}
               onChangeText={(localAddress) => update({ localAddress })}
               placeholder="IP-Adresse, z. B. 192.168.1.50"
-              placeholderTextColor={theme.secondary}
-              autoCapitalize="none"
-              autoCorrect={false}
               keyboardType="url"
             />
-            <TextInput
-              style={inputStyle}
+            <Field
               value={draft.username}
               onChangeText={(username) => update({ username })}
               placeholder="Benutzer (falls nötig)"
-              placeholderTextColor={theme.secondary}
-              autoCapitalize="none"
-              autoCorrect={false}
             />
-            <TextInput
-              style={[...inputStyle, { borderBottomWidth: 0 }]}
+            <Field
               value={draft.password}
               onChangeText={(password) => update({ password })}
               placeholder="Passwort (falls nötig)"
-              placeholderTextColor={theme.secondary}
               secureTextEntry
+              last
             />
           </Card>
-          <Button
-            title="Verbinden"
-            style={styles.action}
-            disabled={!normalizeLocalAddress(draft.localAddress)}
-            onPress={async () => {
-              await persist();
-              onDone();
-              await connectLocal(draft);
-            }}
-          />
+          <Text style={[styles.footnote, { color: theme.secondary }]}>
+            Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
+            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).
+          </Text>
         </>
-      ) : (
-        <Button
-          title="Bei remote.keba.com anmelden"
-          style={styles.action}
-          onPress={async () => {
-            await persist();
-            onDone();
-            startRemoteLogin();
-          }}
-        />
       )}
+
+      <Button
+        title={draft.mode === 'remote' && !hasPortalCredentials(draft) ? 'Ohne Speichern im Portal anmelden' : 'Speichern & verbinden'}
+        style={styles.action}
+        disabled={!canConnect}
+        onPress={saveAndConnect}
+      />
 
       {phase !== 'notConnected' && (
         <Button title="Verbindung trennen" kind="danger" style={styles.action} onPress={disconnect} />
       )}
     </ScrollView>
+  );
+}
+
+function Field({ last, ...props }: TextInputProps & { last?: boolean }) {
+  const theme = useTheme();
+  return (
+    <TextInput
+      placeholderTextColor={theme.secondary}
+      autoCapitalize="none"
+      autoCorrect={false}
+      {...props}
+      style={[
+        styles.input,
+        { color: theme.text, borderBottomColor: theme.separator, borderBottomWidth: last ? 0 : StyleSheet.hairlineWidth },
+      ]}
+    />
   );
 }
 
@@ -123,6 +150,6 @@ const styles = StyleSheet.create({
   segmentText: { fontSize: 15, fontWeight: '600' },
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },
   form: { paddingVertical: 0 },
-  input: { fontSize: 17, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth },
+  input: { fontSize: 17, paddingVertical: 14 },
   action: { marginTop: 20 },
 });
