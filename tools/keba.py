@@ -6,6 +6,9 @@ Beispiele:
     python3 tools/keba.py --url http://192.168.1.50 read APPL.CtrlAppl.sParam.outdoorTemp.values.actValue
     python3 tools/keba.py --url http://192.168.1.50 set APPL.CtrlAppl.sParam.heatCircuit[0].param.offsetRoomTemp 0.5
 
+Im Heimnetz mit HTTPS und Passwort (neuere Firmware):
+    python3 tools/keba.py --url https://192.168.0.100 --insecure --user BENUTZER --password PASSWORT status
+
 Über den Fernzugriff (Port und Cookies aus dem Browser, F12 → Netzwerk):
     python3 tools/keba.py --url https://remote.keba.com:58841 --cookie 'GM_...=...; JSESSIONID=...' status
 
@@ -16,6 +19,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import ssl
 import sys
 import urllib.error
 import urllib.parse
@@ -30,7 +34,7 @@ class KebaError(Exception):
 
 class Keba:
     def __init__(self, url: str, cookie: str | None = None, user: str | None = None,
-                 password: str | None = None, timeout: float = 15):
+                 password: str | None = None, timeout: float = 15, insecure: bool = False):
         self.url = url.rstrip("/")
         if "://" not in self.url:
             self.url = "http://" + self.url
@@ -39,6 +43,8 @@ class Keba:
         if user:
             self.auth = base64.b64encode(f"{user}:{password or ''}".encode()).decode()
         self.timeout = timeout
+        # Der Regler im Heimnetz hat ein selbst ausgestelltes Zertifikat (--insecure).
+        self.ssl_context = ssl._create_unverified_context() if insecure else None
 
     def _post(self, path: str, query: dict[str, str], body: object | None) -> object:
         url = f"{self.url}/{path}?{urllib.parse.urlencode(query)}"
@@ -53,7 +59,7 @@ class Keba:
         if self.auth:
             req.add_header("Authorization", "Basic " + self.auth)
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=self.ssl_context) as resp:
                 raw = resp.read()
         except urllib.error.HTTPError as err:
             raise KebaError(f"HTTP {err.code}: {err.read()[:300]!r}") from err
@@ -98,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cookie", help="Cookie-Header für den Fernzugriff")
     parser.add_argument("--user")
     parser.add_argument("--password")
+    parser.add_argument("--insecure", action="store_true",
+                        help="selbst ausgestelltes Zertifikat des Reglers akzeptieren (https im Heimnetz)")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status", help="wichtigste Werte anzeigen")
     p_read = sub.add_parser("read", help="Variablen lesen")
@@ -108,7 +116,7 @@ def main(argv: list[str] | None = None) -> int:
     p_set.add_argument("value")
     args = parser.parse_args(argv)
 
-    keba = Keba(args.url, args.cookie, args.user, args.password)
+    keba = Keba(args.url, args.cookie, args.user, args.password, insecure=args.insecure)
     try:
         if args.command == "status":
             print("\n".join(status(keba)))
