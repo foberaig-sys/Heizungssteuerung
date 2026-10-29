@@ -1,3 +1,4 @@
+import { Stack } from 'expo-router';
 import { StyleSheet, Text } from 'react-native';
 
 import { commands } from '../keba/service';
@@ -7,7 +8,7 @@ import { Screen } from '../ui/Screen';
 import { type, useTheme } from '../ui/theme';
 
 /** Temperaturen eines Heizkreises einstellen. Die Betriebsart liegt im Tab „Heizarten“. */
-export function HeatCircuitScreen({ index, onBack }: { index: number; onBack: () => void }) {
+export function HeatCircuitScreen({ index }: { index: number }) {
   const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const circuit = snapshot?.heatCircuits.find((c) => c.index === index);
@@ -38,7 +39,8 @@ export function HeatCircuitScreen({ index, onBack }: { index: number; onBack: ()
   ].filter((e): e is NonNullable<typeof e> => Boolean(e));
 
   return (
-    <Screen title={circuit.name} onBack={onBack}>
+    <Screen title={circuit.name} largeTitle={false}>
+      <Stack.Screen options={{ title: circuit.name }} />
       <SectionTitle>Temperaturen</SectionTitle>
       <Card style={styles.list}>
         {editors.map((e, i) => (
@@ -62,14 +64,15 @@ export function HeatCircuitScreen({ index, onBack }: { index: number; onBack: ()
   );
 }
 
-export function HotWaterScreen({ index, onBack }: { index: number; onBack: () => void }) {
+export function HotWaterScreen({ index }: { index: number }) {
   const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const tank = snapshot?.hotWaterTanks.find((t) => t.index === index);
   if (!tank) return null;
 
   return (
-    <Screen title={tank.name} onBack={onBack}>
+    <Screen title={tank.name} largeTitle={false}>
+      <Stack.Screen options={{ title: tank.name }} />
       {tank.setTemperature && (
         <>
           <SectionTitle>Temperatur</SectionTitle>

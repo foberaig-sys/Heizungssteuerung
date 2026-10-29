@@ -1,28 +1,33 @@
 {
   "name": "heizung",
   "version": "1.0.0",
-  "main": "index.ts",
+  "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.1.1",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~58.0.21",
-    "expo-blur": "~58.0.5",
+    "expo-constants": "~58.0.14",
     "expo-dev-client": "~58.0.17",
+    "expo-glass-effect": "~58.0.5",
     "expo-haptics": "~58.0.7",
+    "expo-linking": "~58.0.15",
+    "expo-router": "~58.0.28",
     "expo-secure-store": "~58.0.2",
     "expo-status-bar": "~58.0.4",
     "expo-symbols": "~58.0.4",
     "react": "19.3.0",
+    "react-dom": "19.3.0",
     "react-native": "0.88.1",
     "react-native-safe-area-context": "~5.10.1",
+    "react-native-screens": "~4.30.0",
     "react-native-tcp-socket": "^6.4.3",
+    "react-native-web": "~0.21.4",
     "react-native-webview": "14.0.1"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",
     "@types/node": "^22.20.5",
     "@types/react": "~19.3.0",
-    "esbuild": "^0.28.2",
     "jsdom": "^29.1.1",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3"
@@ -32,8 +37,7 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/keba/*.test.ts src/modbus/*.test.ts",
-    "snack": "node scripts/build-snack.mjs"
+    "test": "node --import tsx --test src/keba/*.test.ts src/modbus/*.test.ts"
   },
   "private": true
 }

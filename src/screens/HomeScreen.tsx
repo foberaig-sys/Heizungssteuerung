@@ -1,19 +1,26 @@
-import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Fragment, useEffect } from 'react';
+import { useRouter } from 'expo-router';
+import { Image, StyleSheet, Text, View, useColorScheme } from 'react-native';
 
 import type { HeatCircuitStatus, HotWaterStatus } from '../keba/service';
-import { commands } from '../keba/service';
+import { ActiveSetpoint, activeSetpoint, commands } from '../keba/service';
 import { useHeating } from '../store';
 import { Card, StepButton } from '../ui/components';
 import { Icon, IconSpec, icons } from '../ui/Icon';
 import { Screen } from '../ui/Screen';
 import { formatTemp, type, useTheme } from '../ui/theme';
 import { heatCircuitModeTiles, hotWaterModeTiles, systemModeTiles, tileIcon, tileLabel } from './modeOptions';
-import type { Route } from './routes';
 
-export function HomeScreen({ navigate }: { navigate: (route: Route) => void }) {
+const wordmark = {
+  dark: require('../../assets/mtec-wordmark-dark.png'),
+  light: require('../../assets/mtec-wordmark-light.png'),
+};
+
+export function HomeScreen() {
   const { snapshot, refresh, writing, offline } = useHeating();
   const theme = useTheme();
+  const router = useRouter();
+  const scheme = useColorScheme() === 'dark' ? 'dark' : 'light';
 
   // Solange die Startseite sichtbar ist, alle 30 s aktualisieren.
   useEffect(() => {
@@ -24,14 +31,18 @@ export function HomeScreen({ navigate }: { navigate: (route: Route) => void }) {
   if (!snapshot) return null;
 
   return (
-    <Screen title="Heizung" onRefresh={refresh}>
+    <Screen
+      title="Heizung"
+      onRefresh={refresh}
+      accessory={<Image source={wordmark[scheme]} style={styles.wordmark} resizeMode="contain" accessibilityLabel="M-TEC" />}
+    >
       <View style={styles.stack}>
         <OverviewCard />
         {snapshot.heatCircuits.map((circuit) => (
-          <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => navigate({ name: 'circuit', index: circuit.index })} />
+          <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => router.push(`/circuit/${circuit.index}`)} />
         ))}
         {snapshot.hotWaterTanks.map((tank) => (
-          <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: 'hotWater', index: tank.index })} />
+          <HotWaterCard key={tank.index} tank={tank} onPress={() => router.push(`/hot-water/${tank.index}`)} />
         ))}
         <Text style={[type.footnote, styles.footer, { color: offline ? theme.danger : theme.secondary }]}>
           {writing
@@ -95,19 +106,32 @@ function ModeChip({ label, icon }: { label: string; icon?: IconSpec }) {
 function HeatCircuitCard({ circuit, onPress }: { circuit: HeatCircuitStatus; onPress: () => void }) {
   const { perform, writing } = useHeating();
   const theme = useTheme();
-  const offset = circuit.offset;
-  // Pfeiltasten: wie an der HMI die Korrektur – über Modbus ist die nicht bekannt, dann die Komforttemperatur.
-  const target = offset ?? circuit.normalSetTemperature;
+  // Pfeiltasten verstellen den Wert, der gerade gilt (in Automatik nachts z. B. die Absenkung).
+  const active = activeSetpoint(circuit);
+  const target =
+    active === 'offset'
+      ? circuit.offset
+      : active === 'reduced'
+        ? circuit.reducedSetTemperature
+        : active === 'normal'
+          ? circuit.normalSetTemperature
+          : undefined;
 
   const step = (delta: number) => {
-    if (!target) return;
+    if (!target || !active) return;
     let next = target.value + delta;
     if (target.range) next = Math.min(target.range.max, Math.max(target.range.min, next));
     if (next === target.value) return;
-    void perform((c) =>
-      offset ? commands.setOffset(c, circuit.index, next) : commands.setNormalTemperature(c, circuit.index, next),
-    );
+    void perform((c) => {
+      if (active === 'offset') return commands.setOffset(c, circuit.index, next);
+      if (active === 'reduced') return commands.setReducedTemperature(c, circuit.index, next);
+      return commands.setNormalTemperature(c, circuit.index, next);
+    });
   };
+
+  const parts: { key: ActiveSetpoint; text: string }[] = [];
+  if (circuit.normalSetTemperature) parts.push({ key: 'normal', text: `Komfort ${formatTemp(circuit.normalSetTemperature.value)}` });
+  if (circuit.reducedSetTemperature) parts.push({ key: 'reduced', text: `Absenkung ${formatTemp(circuit.reducedSetTemperature.value)}` });
 
   return (
     <Card onPress={onPress}>
@@ -126,13 +150,14 @@ function HeatCircuitCard({ circuit, onPress }: { circuit: HeatCircuitStatus; onP
       <View style={styles.circuitBody}>
         <View style={styles.flex}>
           <Text style={[type.display, { color: theme.accent }]}>{formatTemp(circuit.currentSetTemperature)}</Text>
+          {/* Der gerade gültige Wert ist hervorgehoben – genau den verstellen die Pfeile. */}
           <Text style={[type.footnote, { color: theme.secondary }]}>
-            {[
-              circuit.normalSetTemperature && `Komfort ${formatTemp(circuit.normalSetTemperature.value)}`,
-              circuit.reducedSetTemperature && `Absenkung ${formatTemp(circuit.reducedSetTemperature.value)}`,
-            ]
-              .filter(Boolean)
-              .join('  ·  ')}
+            {parts.map((p, i) => (
+              <Fragment key={p.key}>
+                {i > 0 && '  ·  '}
+                <Text style={p.key === active ? [styles.activePart, { color: theme.accent }] : undefined}>{p.text}</Text>
+              </Fragment>
+            ))}
           </Text>
         </View>
         {target && (
@@ -172,6 +197,7 @@ function HotWaterCard({ tank, onPress }: { tank: HotWaterStatus; onPress: () => 
 
 const styles = StyleSheet.create({
   stack: { gap: 12 },
+  wordmark: { width: 84, height: 28, marginTop: 4 },
   flex: { flex: 1 },
   flexShrink: { flexShrink: 1 },
   overview: { flexDirection: 'row' },
@@ -194,4 +220,5 @@ const styles = StyleSheet.create({
   steps: { gap: 8 },
   waterBody: { marginTop: 6 },
   footer: { textAlign: 'center', marginTop: 4 },
+  activePart: { fontWeight: '600' },
 });

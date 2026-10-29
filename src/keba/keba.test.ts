@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 import { WebViewBridge, buildFetchScript, hmiBaseUrl } from './bridge';
 import { KebaClient, KebaError, RawPost, formatNumber, parseVariables, toBool, validate } from './client';
-import { commands, loadSnapshot } from './service';
+import { HeatCircuitStatus, activeSetpoint, commands, loadSnapshot } from './service';
 
 const P = 'APPL.CtrlAppl.sParam';
 
@@ -148,4 +148,26 @@ test('Flags als Zahl oder Text', () => {
   assert.equal(toBool(v('false')), false);
   assert.equal(toBool(v('')), undefined);
   assert.equal(toBool(v('abc')), undefined);
+});
+
+test('Pfeiltasten verstellen den gerade gültigen Sollwert', () => {
+  const base: HeatCircuitStatus = {
+    index: 0,
+    name: 'Puffer FBH',
+    normalSetTemperature: { value: 22 },
+    reducedSetTemperature: { value: 19.5 },
+  };
+  // Automatik, gerade Absenkphase (Screenshot: 19,5° groß, Komfort 22,0°)
+  assert.equal(activeSetpoint({ ...base, operatingMode: 1, currentSetTemperature: 19.5 }), 'reduced');
+  assert.equal(activeSetpoint({ ...base, operatingMode: 1, currentSetTemperature: 22 }), 'normal');
+  assert.equal(activeSetpoint({ ...base, operatingMode: 2, currentSetTemperature: 19.5 }), 'normal');
+  assert.equal(activeSetpoint({ ...base, operatingMode: 3, currentSetTemperature: 22 }), 'reduced');
+  assert.equal(activeSetpoint({ ...base, operatingMode: 0 }), undefined);
+  // Komfort und Absenkung gleich → Komfort
+  assert.equal(
+    activeSetpoint({ ...base, reducedSetTemperature: { value: 22 }, operatingMode: 1, currentSetTemperature: 22 }),
+    'normal',
+  );
+  // Web-HMI mit Korrektur: wie an der HMI
+  assert.equal(activeSetpoint({ ...base, offset: { value: 0 }, operatingMode: 1 }), 'offset');
 });

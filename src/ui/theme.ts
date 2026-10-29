@@ -17,9 +17,6 @@ const light = {
   accentSoft: 'rgba(255, 149, 0, 0.14)',
   water: '#007AFF',
   danger: '#FF3B30',
-  tabBar: 'rgba(255, 255, 255, 0.72)',
-  tabBarBorder: 'rgba(255, 255, 255, 0.6)',
-  blurTint: 'systemChromeMaterialLight' as 'systemChromeMaterialLight' | 'systemChromeMaterialDark',
 };
 
 const dark: typeof light = {
@@ -36,9 +33,6 @@ const dark: typeof light = {
   accentSoft: 'rgba(255, 159, 10, 0.18)',
   water: '#0A84FF',
   danger: '#FF453A',
-  tabBar: 'rgba(30, 30, 30, 0.72)',
-  tabBarBorder: 'rgba(255, 255, 255, 0.08)',
-  blurTint: 'systemChromeMaterialDark' as const,
 };
 
 export type Theme = typeof light;

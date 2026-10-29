@@ -16,7 +16,7 @@
     "android": {
       "package": "at.oberaigner.heizung",
       "adaptiveIcon": {
-        "backgroundColor": "#FF9E00",
+        "backgroundColor": "#1C1C1E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -25,6 +25,10 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "scheme": "heizung",
+    "plugins": [
+      "expo-router"
+    ]
   }
 }

@@ -114,6 +114,27 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
   };
 }
 
+// MARK: Welcher Sollwert gilt gerade?
+
+export type ActiveSetpoint = 'offset' | 'normal' | 'reduced';
+
+/**
+ * Welchen Wert die Pfeiltasten verstellen sollen: den, der gerade gilt. Mit Korrektur (Web-HMI) wie an der
+ * HMI die Korrektur; sonst je nach Betriebsart Komfort bzw. Absenkung. In Automatik verrät der aktuelle
+ * Sollwert, welche Phase des Zeitprogramms gerade läuft. Bei „Aus“ gibt es nichts zu verstellen.
+ */
+export function activeSetpoint(c: HeatCircuitStatus): ActiveSetpoint | undefined {
+  if (c.offset) return 'offset';
+  if (c.operatingMode === 0) return undefined;
+  if (c.operatingMode === 3) return c.reducedSetTemperature ? 'reduced' : undefined;
+  if (c.operatingMode === 2) return c.normalSetTemperature ? 'normal' : undefined;
+  const current = c.currentSetTemperature;
+  const near = (v: number | undefined) => current !== undefined && v !== undefined && Math.abs(current - v) < 0.05;
+  if (near(c.reducedSetTemperature?.value) && !near(c.normalSetTemperature?.value)) return 'reduced';
+  if (c.normalSetTemperature) return 'normal';
+  return c.reducedSetTemperature ? 'reduced' : undefined;
+}
+
 // MARK: Schreiben
 
 const writeNumber = (client: KebaTransport, name: string, value: number) =>

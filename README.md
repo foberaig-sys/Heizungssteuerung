@@ -46,23 +46,8 @@ npx expo start --tunnel
 Den angezeigten QR-Code mit der iPhone-Kamera scannen, die App öffnet sich in Expo Go.
 Änderungen am Code sind sofort auf dem Handy sichtbar.
 
-**b) Mit Snack (ganz ohne Installation).** Die komplette App steckt in **einer** Datei:
-[snack/App.js](snack/App.js).
-
-1. <https://snack.expo.dev> öffnen, links die vorhandene `App.js` anklicken und den Inhalt löschen.
-2. Den kompletten Inhalt von [snack/App.js](snack/App.js) einfügen (auf GitHub: „Raw“ → alles markieren → kopieren).
-3. Snack meldet fehlende Pakete (WebView, AsyncStorage, …) → jeweils „Add dependency“ bestätigen.
-4. Rechts „My Device“ wählen und den QR-Code mit Expo Go scannen.
-
-Die Vorschau im Browser selbst funktioniert für den Fernzugriff nicht (keine WebView im Web) –
-immer auf dem iPhone testen.
-
-`snack/App.js` wird aus dem eigentlichen Code erzeugt. Nach Änderungen an `App.tsx` oder `src/`
-neu erzeugen:
-
-```bash
-npm run snack
-```
+Hinweis: Snack/Expo Go reichen für Modbus nicht (keine TCP-Verbindungen). Für den Alltag die eigene
+App-Version bauen (Abschnitt 2).
 
 ## 2. Eigene App-Version – nötig für Modbus
 
@@ -104,7 +89,7 @@ npx eas-cli@latest submit -p ios --latest
 ## Projektstruktur
 
 ```
-App.tsx                 Einstieg: Navigation, Kopfzeile, Status-Bildschirme
+src/app/                Routen (Expo Router): echte iOS-Tab-Leiste mit Liquid Glass, Start-Stack
 src/keba/               Regler-Schnittstelle: Client, Variablennamen, Zustand, WebView-Bridge (+ Tests)
 src/screens/            Übersicht, Heizkreis, Warmwasser, Einstellungen, Fernzugriff-WebView
 src/ui/                 Farben und wiederverwendbare Bausteine
