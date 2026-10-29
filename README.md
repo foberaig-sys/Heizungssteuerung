@@ -42,11 +42,23 @@ npx expo start --tunnel
 Den angezeigten QR-Code mit der iPhone-Kamera scannen, die App öffnet sich in Expo Go.
 Änderungen am Code sind sofort auf dem Handy sichtbar.
 
-**b) Mit Snack im Browser (ganz ohne Installation).** Auf <https://snack.expo.dev> → „Import git
-repository“ und die URL dieses Repositories eintragen (das Repository muss dafür öffentlich sein).
-Alternativ die Dateien `App.tsx`, `app.json`, `package.json` und den Ordner `src/` per Drag & Drop
-in einen neuen Snack ziehen. Rechts „My Device“ wählen und den QR-Code mit Expo Go scannen.
-Die Vorschau im Browser selbst funktioniert für den Fernzugriff nicht (keine WebView im Web).
+**b) Mit Snack (ganz ohne Installation).** Die komplette App steckt in **einer** Datei:
+[snack/App.js](snack/App.js).
+
+1. <https://snack.expo.dev> öffnen, links die vorhandene `App.js` anklicken und den Inhalt löschen.
+2. Den kompletten Inhalt von [snack/App.js](snack/App.js) einfügen (auf GitHub: „Raw“ → alles markieren → kopieren).
+3. Snack meldet fehlende Pakete (WebView, AsyncStorage, …) → jeweils „Add dependency“ bestätigen.
+4. Rechts „My Device“ wählen und den QR-Code mit Expo Go scannen.
+
+Die Vorschau im Browser selbst funktioniert für den Fernzugriff nicht (keine WebView im Web) –
+immer auf dem iPhone testen.
+
+`snack/App.js` wird aus dem eigentlichen Code erzeugt. Nach Änderungen an `App.tsx` oder `src/`
+neu erzeugen:
+
+```bash
+npm run snack
+```
 
 ## 2. Als normale App installieren (mit Apple Developer Konto)
 
