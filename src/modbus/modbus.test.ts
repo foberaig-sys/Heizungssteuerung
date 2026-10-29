@@ -66,6 +66,8 @@ const scanValues = () =>
     [2, 220], [3, 220], [4, 220], [5, 195], [7, 1], [8, 1],
     [52, 210], [53, 210], [54, 210], [55, 185], [57, 1], [58, 0],
     [401, 476], [402, 480], [403, 1],
+    [601, 425], [603, 385], [705, 423], [708, 92], [709, 84], [710, 393],
+    [1500, 2], [1502, 87],
   ]);
 
 test('fasst Register zu wenigen Leseblöcken zusammen', () => {
@@ -112,16 +114,31 @@ test('Heizungs-Zustand kommt über Modbus wie über die WebHMI', async () => {
     assert.equal(s.heatCircuits[0].roomTemperature, undefined);
     assert.equal(s.hotWaterTanks[0].temperature, 47.6);
     assert.deepEqual(s.hotWaterTanks[0].setTemperature, { value: 48, range: { min: 30, max: 60 } });
+    assert.equal(s.outdoorTemperature, 8.7);
+    assert.equal(s.systemOperatingMode, 2);
+    assert.deepEqual(s.heatPump, {
+      flowTemperature: 42.3,
+      returnTemperature: 39.3,
+      sourceInTemperature: 9.2,
+      sourceOutTemperature: 8.4,
+      bufferTopTemperature: 42.5,
+      bufferMidTemperature: 38.5,
+    });
 
     await commands.setNormalTemperature(transport, 0, 22.5);
     await commands.setHotWaterTemperature(transport, 0, 49);
-    assert.deepEqual(controller.writes, [[4, 225], [402, 490]]);
+    await commands.setHeatCircuitMode(transport, 1, 2); // Heizkörper → Sonne
+    await commands.setSystemMode(transport, 1); // Anlage → Warmwasser
+    assert.deepEqual(controller.writes, [[4, 225], [402, 490], [57, 2], [1500, 1]]);
 
     // Nicht bestätigte oder unsinnige Werte werden gar nicht erst geschickt.
-    await assert.rejects(commands.setHeatCircuitMode(transport, 0, 2), /nicht freigeschaltet/);
+    await assert.rejects(commands.setOffset(transport, 0, 0.5), /nicht freigeschaltet/);
+    await assert.rejects(commands.setHeatCircuitMode(transport, 0, 5), /außerhalb/); // Party: nicht geprüft
+    await assert.rejects(commands.setSystemMode(transport, 4), /außerhalb/);
     await assert.rejects(commands.setHotWaterTemperature(transport, 0, 75), /außerhalb/);
-    assert.equal(controller.writes.length, 2);
-    assert.equal(transport.canWrite('APPL.CtrlAppl.sParam.heatCircuit[0].param.operatingMode'), false);
+    assert.equal(controller.writes.length, 4);
+    assert.equal(transport.canWrite('APPL.CtrlAppl.sParam.heatCircuit[0].param.operatingMode'), true);
+    assert.equal(transport.canWrite('APPL.CtrlAppl.sParam.outdoorTemp.values.actValue'), false);
   } finally {
     client.close();
     controller.close();

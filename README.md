@@ -19,7 +19,6 @@ Die App spricht direkt mit derselben JSON-Schnittstelle, die auch die WebHMI im 
 |---|---|---|
 | **Modbus** (empfohlen) | IP-Adresse der Wärmepumpe (Display → Netzwerk → LAN, z. B. `192.168.0.100`). Direkt, ohne Website, ohne Passwort. Braucht die eigene App-Version (siehe unten). | im WLAN zuhause oder per VPN |
 | **KEBA Fernzugriff** | Einmal in den Einstellungen Benutzername und Passwort von `remote.keba.com` eintragen. Ab dann meldet sich die App bei jedem Start **unsichtbar selbst** an und öffnet die Anlage – du siehst keine Webseite, nur die App. | funktioniert überall |
-| **Heimnetz / VPN** | IP-Adresse des Reglers eintragen (Router → Geräteliste, z. B. `192.168.1.50`) | schneller, ohne Hersteller-Portal; unterwegs per eigenem VPN |
 
 So funktioniert der Fernzugriff technisch: Die App öffnet eine unsichtbare WebView, meldet sich darin im
 Secomea-Portal an, klappt die Anlage auf, tippt „WebHmi“ und „WWW“ an

@@ -26,6 +26,18 @@ export const KebaVar = {
     heatRequest: (i: number) => `${P}.heatCircuit[${i}].values.heatRequest`,
   },
 
+  heatPump: {
+    flowTemperature: (i: number) => `${P}.heatpump[${i}].TempHeatFlow.values.actValue`,
+    returnTemperature: (i: number) => `${P}.heatpump[${i}].TempHeatReflux.values.actValue`,
+    sourceInTemperature: (i: number) => `${P}.heatpump[${i}].TempSourceIn.values.actValue`,
+    sourceOutTemperature: (i: number) => `${P}.heatpump[${i}].TempSourceOut.values.actValue`,
+  },
+
+  bufferTank: {
+    topTemperature: (i: number) => `${P}.bufferTank[${i}].topTemp.values.actValue`,
+    midTemperature: (i: number) => `${P}.bufferTank[${i}].midTemp.values.actValue`,
+  },
+
   hotWaterTank: {
     name: (i: number) => `${P}.hotWaterTank[${i}].param.name`,
     temperature: (i: number) => `${P}.hotWaterTank[${i}].topTemp.values.actValue`,
@@ -37,6 +49,10 @@ export const KebaVar = {
 
 export const allHeatCircuitVars = (i: number) => Object.values(KebaVar.heatCircuit).map((f) => f(i));
 export const allHotWaterVars = (i: number) => Object.values(KebaVar.hotWaterTank).map((f) => f(i));
+export const allHeatPumpVars = (i: number) => [
+  ...Object.values(KebaVar.heatPump).map((f) => f(i)),
+  ...Object.values(KebaVar.bufferTank).map((f) => f(i)),
+];
 
 export interface ModeOption {
   value: number;
@@ -46,9 +62,9 @@ export interface ModeOption {
 // Betriebsarten laut keba_keenergy_api (superbox-dev), passend zu den Icons der HMI.
 export const SystemModes: ModeOption[] = [
   { value: -1, label: 'Inbetriebnahme' },
-  { value: 0, label: 'Aus (Standby)' },
+  { value: 0, label: 'Standby' },
   { value: 1, label: 'Nur Warmwasser' },
-  { value: 2, label: 'Heizen + Warmwasser' },
+  { value: 2, label: 'Automatik heizen' },
   { value: 3, label: 'Kühlen' },
   { value: 4, label: 'Automatik Heizen/Kühlen' },
 ];
@@ -71,7 +87,7 @@ export const HotWaterModes: ModeOption[] = [
   { value: 0, label: 'Aus' },
   { value: 1, label: 'Automatik (Zeitprogramm)' },
   { value: 2, label: 'Dauernd Ein' },
-  { value: 3, label: 'Einmal aufheizen' },
+  { value: 3, label: 'Aufheizen' },
 ];
 export const selectableHotWaterModes = [0, 1, 2, 3];
 

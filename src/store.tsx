@@ -1,7 +1,7 @@
 import { ReactNode, createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 
 import { WebViewBridge } from './keba/bridge';
-import { KebaClient, KebaError, directPost, normalizeLocalAddress } from './keba/client';
+import { KebaClient, KebaError } from './keba/client';
 import { PortalMessage, buildPortalAutomationScript, portalStepLabel } from './keba/portalAutomation';
 import { HeatingSnapshot, KebaTransport, loadSnapshot } from './keba/service';
 import { ModbusTcpClient } from './modbus/modbusClient';
@@ -224,18 +224,7 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
         const mb = new ModbusTcpClient(factory, host, 502, 1);
         modbusClient.current = mb;
         await start(new ModbusTransport(mb, { circuitNames: circuitNameList(settings) }));
-        return;
       }
-
-      const url = normalizeLocalAddress(settings.localAddress);
-      if (!url) {
-        fail('Bitte die IP-Adresse des Reglers eintragen.');
-        return;
-      }
-      setRemoteStage('idle');
-      bridge.reset();
-      const auth = settings.username ? { username: settings.username, password: settings.password } : undefined;
-      await start(new KebaClient(directPost(url, auth)));
     },
     [bridge, closeModbus, fail, start, startRemote],
   );

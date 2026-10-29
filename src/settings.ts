@@ -1,8 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-/** modbus: direkt im Heimnetz ohne Passwort (eigene App-Version nötig); remote: über remote.keba.com; local: Web-HMI im Heimnetz. */
-export type ConnectionMode = 'modbus' | 'remote' | 'local';
+/** modbus: direkt im Heimnetz ohne Passwort (eigene App-Version nötig); remote: über remote.keba.com. */
+export type ConnectionMode = 'modbus' | 'remote';
 
 export interface Settings {
   mode: ConnectionMode;
@@ -15,10 +15,6 @@ export interface Settings {
   portalPassword: string;
   /** Textstück des Geräteeintrags im Portal. */
   portalDevice: string;
-  /** IP-Adresse oder Hostname des Reglers im Heimnetz. */
-  localAddress: string;
-  username: string;
-  password: string;
 }
 
 export const defaultSettings: Settings = {
@@ -28,9 +24,6 @@ export const defaultSettings: Settings = {
   portalUsername: '',
   portalPassword: '',
   portalDevice: 'WebHmi',
-  localAddress: '',
-  username: '',
-  password: '',
 };
 
 export function circuitNameList(s: Settings): string[] {
@@ -42,41 +35,42 @@ export const hasPortalCredentials = (s: Settings) => s.portalUsername.trim() !==
 
 /** Reicht das Eingetragene, um ohne Rückfrage zu verbinden? */
 export function isConfigured(s: Settings): boolean {
-  switch (s.mode) {
-    case 'modbus':
-      return s.modbusAddress.trim() !== '';
-    case 'remote':
-      return hasPortalCredentials(s);
-    case 'local':
-      return s.localAddress.trim() !== '';
-  }
+  return s.mode === 'modbus' ? s.modbusAddress.trim() !== '' : hasPortalCredentials(s);
 }
 
 const KEY = 'heizung.settings';
-// Passwörter liegen im iOS-Schlüsselbund, nicht im normalen App-Speicher.
-const SECRET_KEYS = { password: 'heizung.password', portalPassword: 'heizung.portalPassword' } as const;
+// Passwort liegt im iOS-Schlüsselbund, nicht im normalen App-Speicher.
+const PORTAL_PASSWORD_KEY = 'heizung.portalPassword';
+/** Stammt aus der entfernten Web-HMI-Verbindung; wird beim Speichern aufgeräumt. */
+const LEGACY_PASSWORD_KEY = 'heizung.password';
 
 export async function loadSettings(): Promise<Settings> {
   try {
     const raw = await AsyncStorage.getItem(KEY);
-    const stored = raw ? (JSON.parse(raw) as Partial<Settings>) : {};
-    const password = (await SecureStore.getItemAsync(SECRET_KEYS.password)) ?? '';
-    const portalPassword = (await SecureStore.getItemAsync(SECRET_KEYS.portalPassword)) ?? '';
-    return { ...defaultSettings, ...stored, password, portalPassword };
+    const stored = raw ? (JSON.parse(raw) as Partial<Settings> & { mode?: string }) : {};
+    const portalPassword = (await SecureStore.getItemAsync(PORTAL_PASSWORD_KEY)) ?? '';
+    // Frühere Version hatte zusätzlich „Web-HMI“ – das wird zu Modbus.
+    const mode: ConnectionMode = stored.mode === 'remote' ? 'remote' : 'modbus';
+    return {
+      mode,
+      modbusAddress: stored.modbusAddress ?? defaultSettings.modbusAddress,
+      circuitNames: stored.circuitNames ?? defaultSettings.circuitNames,
+      portalUsername: stored.portalUsername ?? defaultSettings.portalUsername,
+      portalDevice: stored.portalDevice ?? defaultSettings.portalDevice,
+      portalPassword,
+    };
   } catch {
     return defaultSettings;
   }
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  const { password, portalPassword, ...rest } = settings;
+  const { portalPassword, ...rest } = settings;
   try {
     await AsyncStorage.setItem(KEY, JSON.stringify(rest));
-    for (const [field, key] of Object.entries(SECRET_KEYS) as [keyof typeof SECRET_KEYS, string][]) {
-      const value = field === 'password' ? password : portalPassword;
-      if (value) await SecureStore.setItemAsync(key, value);
-      else await SecureStore.deleteItemAsync(key);
-    }
+    if (portalPassword) await SecureStore.setItemAsync(PORTAL_PASSWORD_KEY, portalPassword);
+    else await SecureStore.deleteItemAsync(PORTAL_PASSWORD_KEY);
+    await SecureStore.deleteItemAsync(LEGACY_PASSWORD_KEY);
   } catch {
     // Speichern ist Komfort; die Verbindung soll daran nicht scheitern (z. B. SecureStore im Browser).
   }

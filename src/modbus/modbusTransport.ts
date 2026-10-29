@@ -2,7 +2,7 @@
 // und commands aus src/keba/service.ts unverändert – nur der Transport ist ein anderer.
 //
 // Belegung durch Verstellen am Display und Vergleich zweier Scans bestätigt (siehe docs/API.md):
-// Heizkreis i liegt im Block ab 50·i, Warmwasser ab 400.
+// Heizkreis i liegt im Block ab 50·i, Warmwasser ab 400, Puffer ab 600, Wärmepumpe ab 700, System ab 1500.
 import { KebaError, KebaVariable, KebaWrite } from '../keba/client';
 import type { KebaTransport } from '../keba/service';
 import { KebaVar } from '../keba/variables';
@@ -13,7 +13,7 @@ interface RegisterMapping {
   /** Register enthält Wert ÷ scale, z. B. 0.1 → 225 bedeutet 22,5. */
   scale: number;
   /** Nur bestätigte Sollwerte dürfen geschrieben werden. */
-  writable?: { min: number; max: number };
+  writable?: { min: number; max: number; allowed?: number[] };
 }
 
 export interface ModbusLayout {
@@ -21,12 +21,17 @@ export interface ModbusLayout {
   hotWaterName?: string;
 }
 
-const temperature = (address: number, writable?: { min: number; max: number }): RegisterMapping => ({
+const temperature = (address: number, writable?: RegisterMapping['writable']): RegisterMapping => ({
   address,
   scale: 0.1,
   writable,
 });
-const raw = (address: number): RegisterMapping => ({ address, scale: 1 });
+const raw = (address: number, writable?: RegisterMapping['writable']): RegisterMapping => ({ address, scale: 1, writable });
+
+// Betriebsarten, die am Display umgestellt und per Scan bestätigt wurden.
+const HEAT_CIRCUIT_MODES = { min: 0, max: 3, allowed: [0, 1, 2, 3] }; // Aus, Uhr, Sonne, Mond
+const HOT_WATER_MODES = { min: 0, max: 3, allowed: [0, 1, 2, 3] }; // Aus, Automatik, Ein, Aufheizen
+const SYSTEM_MODES = { min: 0, max: 2, allowed: [0, 1, 2] }; // Standby, Warmwasser, Automatik heizen
 
 export function buildRegisterMap(circuitCount: number): Map<string, RegisterMapping> {
   const map = new Map<string, RegisterMapping>();
@@ -36,14 +41,24 @@ export function buildRegisterMap(circuitCount: number): Map<string, RegisterMapp
     map.set(HC.setValue(i), temperature(base + 2));
     map.set(HC.normalSetTemperature(i), temperature(base + 4, { min: 10, max: 30 }));
     map.set(HC.reducedSetTemperature(i), temperature(base + 5, { min: 10, max: 30 }));
-    // Vermutet (Wert passt zum Statusbericht, Schreiben noch nicht bestätigt) → nur lesen.
-    map.set(HC.operatingMode(i), raw(base + 7));
+    map.set(HC.operatingMode(i), raw(base + 7, HEAT_CIRCUIT_MODES));
     map.set(HC.heatRequest(i), raw(base + 8));
   }
   const HW = KebaVar.hotWaterTank;
   map.set(HW.temperature(0), temperature(401));
   map.set(HW.setTemperature(0), temperature(402, { min: 30, max: 60 }));
-  map.set(HW.operatingMode(0), raw(403));
+  map.set(HW.operatingMode(0), raw(403, HOT_WATER_MODES));
+  map.set(KebaVar.systemOperatingMode, raw(1500, SYSTEM_MODES));
+
+  // Messwerte (nur lesen). Register passen zu Display und Statusbericht.
+  map.set(KebaVar.outdoorTemperature, temperature(1502));
+  const HP = KebaVar.heatPump;
+  map.set(HP.flowTemperature(0), temperature(705));
+  map.set(HP.returnTemperature(0), temperature(710));
+  map.set(HP.sourceInTemperature(0), temperature(708));
+  map.set(HP.sourceOutTemperature(0), temperature(709));
+  map.set(KebaVar.bufferTank.topTemperature(0), temperature(601));
+  map.set(KebaVar.bufferTank.midTemperature(0), temperature(603));
   return map;
 }
 
@@ -112,7 +127,7 @@ export class ModbusTransport implements KebaTransport {
         name,
         value: formatValue(toSigned16(rawValue) * mapping.scale),
         attributes:
-          withAttributes && mapping.writable
+          withAttributes && mapping.writable && mapping.scale !== 1
             ? { lowerLimit: String(mapping.writable.min), upperLimit: String(mapping.writable.max) }
             : undefined,
       };
@@ -127,7 +142,8 @@ export class ModbusTransport implements KebaTransport {
         throw new KebaError('server', 'Diese Einstellung ist über Modbus noch nicht freigeschaltet.');
       }
       const number = Number(value);
-      if (!Number.isFinite(number) || number < mapping.writable.min || number > mapping.writable.max) {
+      const { min, max, allowed } = mapping.writable;
+      if (!Number.isFinite(number) || number < min || number > max || (allowed && !allowed.includes(number))) {
         throw new KebaError('server', `Wert ${value} liegt außerhalb von ${mapping.writable.min}–${mapping.writable.max}.`);
       }
       try {

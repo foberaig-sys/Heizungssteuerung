@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 
-import type { HeatCircuitStatus, HotWaterStatus } from '../keba/service';
+import type { HeatCircuitStatus, HeatPumpStatus, HotWaterStatus } from '../keba/service';
 import { commands } from '../keba/service';
-import { HeatCircuitModes, HotWaterModes, SystemModes, modeLabel, selectableSystemModes } from '../keba/variables';
+import { HeatCircuitModes, HotWaterModes, KebaVar, SystemModes, modeLabel, selectableSystemModes } from '../keba/variables';
 import { useHeating } from '../store';
 import { Card, OptionList, StepButton } from '../ui/components';
 import { formatSigned, formatTemp, useTheme } from '../ui/theme';
@@ -45,6 +45,7 @@ export function Dashboard({ navigate }: { navigate: (route: Route) => void }) {
       {snapshot.hotWaterTanks.map((tank) => (
         <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: 'hotWater', index: tank.index })} />
       ))}
+      {snapshot.heatPump && <HeatPumpCard heatPump={snapshot.heatPump} />}
       <Text style={[styles.footer, { color: theme.secondary }]}>
         {writing
           ? 'Wird gespeichert …'
@@ -55,7 +56,8 @@ export function Dashboard({ navigate }: { navigate: (route: Route) => void }) {
 }
 
 function SystemCard() {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.systemOperatingMode);
   const theme = useTheme();
   const [picking, setPicking] = useState(false);
   if (!snapshot) return null;
@@ -68,7 +70,12 @@ function SystemCard() {
       </View>
       {/* Über Modbus ist die Anlagen-Betriebsart (noch) nicht bekannt → Auswahl ausblenden. */}
       {snapshot.systemOperatingMode !== undefined && (
-        <Pressable onPress={() => setPicking(true)} disabled={writing} style={styles.systemMode} hitSlop={8}>
+        <Pressable
+          onPress={() => setPicking(true)}
+          disabled={writing || !modeWritable}
+          style={styles.systemMode}
+          hitSlop={8}
+        >
           <Text style={[styles.caption, { color: theme.secondary }]}>Anlage</Text>
           <Text style={[styles.systemModeText, { color: theme.accent }]}>
             {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
@@ -146,6 +153,33 @@ function HeatCircuitCard({ circuit, onPress }: { circuit: HeatCircuitStatus; onP
   );
 }
 
+function HeatPumpCard({ heatPump }: { heatPump: HeatPumpStatus }) {
+  const theme = useTheme();
+  const rows: [string, number | undefined][] = [
+    ['Vorlauf', heatPump.flowTemperature],
+    ['Rücklauf', heatPump.returnTemperature],
+    ['Puffer oben', heatPump.bufferTopTemperature],
+    ['Puffer Mitte', heatPump.bufferMidTemperature],
+    ['Luft rein', heatPump.sourceInTemperature],
+    ['Luft raus', heatPump.sourceOutTemperature],
+  ];
+  return (
+    <Card>
+      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 8 }]}>Wärmepumpe</Text>
+      <View style={styles.grid}>
+        {rows
+          .filter(([, value]) => value !== undefined)
+          .map(([label, value]) => (
+            <View key={label} style={styles.gridItem}>
+              <Text style={[styles.caption, { color: theme.secondary }]}>{label}</Text>
+              <Text style={[styles.gridValue, { color: theme.text }]}>{formatTemp(value)}</Text>
+            </View>
+          ))}
+      </View>
+    </Card>
+  );
+}
+
 function HotWaterCard({ tank, onPress }: { tank: HotWaterStatus; onPress: () => void }) {
   const theme = useTheme();
   return (
@@ -181,6 +215,9 @@ const styles = StyleSheet.create({
   waterCard: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   drop: { fontSize: 28 },
   footer: { textAlign: 'center', fontSize: 13, marginTop: 4 },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 10 },
+  gridItem: { width: '50%' },
+  gridValue: { fontSize: 20, fontWeight: '600', fontVariant: ['tabular-nums'] },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', padding: 24 },
   sheet: { gap: 10 },
   sheetTitle: { fontSize: 17, fontWeight: '600', textAlign: 'center' },

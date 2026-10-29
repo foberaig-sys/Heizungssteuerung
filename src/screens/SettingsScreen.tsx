@@ -1,9 +1,7 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
-import { normalizeLocalAddress } from '../keba/client';
 import { isModbusAvailable } from '../modbus/nativeSocket';
-import { FoundController, scanForControllers, subnetPrefix } from '../keba/discovery';
 import { ConnectionMode, Settings, hasPortalCredentials, saveSettings } from '../settings';
 import { useHeating } from '../store';
 import { Button, Card, SectionTitle } from '../ui/components';
@@ -30,12 +28,7 @@ export function SettingsScreen({
     await connect(draft);
   };
 
-  const canConnect =
-    draft.mode === 'remote'
-      ? true
-      : draft.mode === 'modbus'
-        ? draft.modbusAddress.trim() !== ''
-        : normalizeLocalAddress(draft.localAddress) !== undefined;
+  const canConnect = draft.mode === 'remote' || draft.modbusAddress.trim() !== '';
 
   return (
     <ScrollView
@@ -45,7 +38,7 @@ export function SettingsScreen({
     >
       <SectionTitle>Verbindung</SectionTitle>
       <View style={[styles.segment, { backgroundColor: theme.pressed }]}>
-        {(['modbus', 'remote', 'local'] as ConnectionMode[]).map((mode) => (
+        {(['modbus', 'remote'] as ConnectionMode[]).map((mode) => (
           <Pressable
             key={mode}
             onPress={() => update({ mode })}
@@ -87,7 +80,7 @@ export function SettingsScreen({
             </Text>
           )}
         </>
-      ) : draft.mode === 'remote' ? (
+      ) : (
         <>
           <SectionTitle>Zugang remote.keba.com</SectionTitle>
           <Card style={styles.form}>
@@ -119,39 +112,6 @@ export function SettingsScreen({
             Das Passwort liegt verschlüsselt im iOS-Schlüsselbund.
           </Text>
         </>
-      ) : (
-        <>
-          <SectionTitle>Regler im Heimnetz</SectionTitle>
-          <Card style={styles.form}>
-            <Field
-              value={draft.localAddress}
-              onChangeText={(localAddress) => update({ localAddress })}
-              placeholder="Adresse, z. B. https://192.168.0.100"
-              keyboardType="url"
-            />
-            <Field
-              value={draft.username}
-              onChangeText={(username) => update({ username })}
-              placeholder="Benutzer (falls nötig)"
-            />
-            <Field
-              value={draft.password}
-              onChangeText={(password) => update({ password })}
-              placeholder="Passwort (falls nötig)"
-              secureTextEntry
-              last
-            />
-          </Card>
-          <Text style={[styles.footnote, { color: theme.secondary }]}>
-            Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
-            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale). Neuere Regler
-            verlangen https:// und Benutzer/Passwort.
-          </Text>
-          <ControllerSearch
-            address={draft.localAddress}
-            onSelect={(url) => update({ localAddress: url.replace(/^http:\/\//, '') })}
-          />
-        </>
       )}
 
       <Button
@@ -168,63 +128,9 @@ export function SettingsScreen({
   );
 }
 
-/** Durchsucht das WLAN nach dem Regler, falls die IP-Adresse unbekannt ist. */
-function ControllerSearch({ address, onSelect }: { address: string; onSelect: (url: string) => void }) {
-  const theme = useTheme();
-  const [progress, setProgress] = useState<{ done: number; total: number }>();
-  const [results, setResults] = useState<FoundController[]>();
-  const cancelled = useRef(false);
-  // Netz aus der eingetragenen Adresse, sonst das übliche Netz deines Routers.
-  const prefix = subnetPrefix(address) ?? '192.168.0';
-  const searching = progress !== undefined;
-
-  const search = async () => {
-    cancelled.current = false;
-    setResults(undefined);
-    setProgress({ done: 0, total: 1 });
-    const found = await scanForControllers(prefix, {
-      onProgress: (done, total) => setProgress({ done, total }),
-      isCancelled: () => cancelled.current,
-    });
-    setProgress(undefined);
-    setResults(found);
-  };
-
-  return (
-    <View style={styles.search}>
-      {searching ? (
-        <>
-          <Text style={[styles.searchText, { color: theme.text }]}>
-            Suche in {prefix}.x … {Math.round((progress.done / progress.total) * 100)} %
-          </Text>
-          <Button title="Suche abbrechen" kind="secondary" onPress={() => (cancelled.current = true)} />
-        </>
-      ) : (
-        <Button title={`Regler im WLAN suchen (${prefix}.x)`} kind="secondary" onPress={search} />
-      )}
-      {results?.length === 0 && (
-        <Text style={[styles.footnote, { color: theme.secondary }]}>
-          Kein Regler gefunden. Ist das Handy im selben WLAN wie die Wärmepumpe (nicht im Gäste-WLAN)?
-          Hat iOS gefragt, ob die App „Geräte im lokalen Netzwerk“ finden darf? Das muss erlaubt sein
-          (Einstellungen → Datenschutz → Lokales Netzwerk → Expo Go).
-        </Text>
-      )}
-      {results?.map((r) => (
-        <Card key={r.url} onPress={() => onSelect(r.url)} style={styles.result}>
-          <Text style={[styles.searchText, { color: theme.text }]}>Gefunden: {r.url}</Text>
-          <Text style={[styles.footnote, { color: theme.secondary, marginHorizontal: 0 }]}>
-            Außentemperatur {r.outdoorTemperature?.toFixed(1).replace('.', ',') ?? '–'}° · antippen zum Übernehmen
-          </Text>
-        </Card>
-      ))}
-    </View>
-  );
-}
-
 const MODE_LABELS: Record<ConnectionMode, string> = {
   modbus: 'Modbus',
-  remote: 'Fernzugriff',
-  local: 'Web-HMI',
+  remote: 'KEBA Fernzugriff',
 };
 
 function Field({ last, ...props }: TextInputProps & { last?: boolean }) {
@@ -252,7 +158,4 @@ const styles = StyleSheet.create({
   form: { paddingVertical: 0 },
   input: { fontSize: 17, paddingVertical: 14 },
   action: { marginTop: 20 },
-  search: { marginTop: 16, gap: 10 },
-  searchText: { fontSize: 16, fontWeight: '500' },
-  result: { gap: 2 },
 });

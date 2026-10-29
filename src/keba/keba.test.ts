@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 import { WebViewBridge, buildFetchScript, hmiBaseUrl } from './bridge';
-import { KebaClient, KebaError, RawPost, formatNumber, normalizeLocalAddress, parseVariables, toBool, validate } from './client';
+import { KebaClient, KebaError, RawPost, formatNumber, parseVariables, toBool, validate } from './client';
 import { commands, loadSnapshot } from './service';
 
 const P = 'APPL.CtrlAppl.sParam';
@@ -41,14 +41,11 @@ test('HTML-Antwort bedeutet abgelaufene Sitzung', () => {
   assert.equal(kind(() => validate({ status: 500, contentType: 'application/json', body: '{"developerMessage":"x"}' })), 'server');
 });
 
-test('Zahlen und Adressen werden wie in der HMI formatiert', () => {
+test('Zahlen werden wie in der HMI formatiert', () => {
   assert.equal(formatNumber(0), '0');
   assert.equal(formatNumber(0.5), '0.5');
   assert.equal(formatNumber(-1.5), '-1.5');
   assert.equal(formatNumber(0.1 + 0.2), '0.3');
-  assert.equal(normalizeLocalAddress(' 192.168.1.50 '), 'http://192.168.1.50');
-  assert.equal(normalizeLocalAddress('http://heizung.local/foo'), 'http://heizung.local');
-  assert.equal(normalizeLocalAddress(''), undefined);
 });
 
 test('erkennt die HMI-Adresse des Fernzugriffs', () => {

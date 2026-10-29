@@ -137,42 +137,6 @@ function formatNumber(value) {
   const rounded = Math.round(value * 100) / 100;
   return String(rounded);
 }
-function directPost(baseUrl, auth, timeoutMs = 15e3) {
-  const base = baseUrl.replace(/\/+$/, "");
-  return async (path, body) => {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const headers = {
-      "Content-Type": "application/json; charset=UTF-8",
-      Accept: "*/*"
-    };
-    if (auth?.username) {
-      headers.Authorization = `Basic ${base64(`${auth.username}:${auth.password}`)}`;
-    }
-    try {
-      const response = await fetch(base + path, { method: "POST", headers, body, signal: controller.signal });
-      return { status: response.status, contentType: response.headers.get("content-type"), body: await response.text() };
-    } catch (error) {
-      const aborted = error?.name === "AbortError";
-      throw new KebaError("network", aborted ? "Der Regler antwortet nicht (Zeit\xFCberschreitung)." : "Regler nicht erreichbar. Bist du im richtigen WLAN?");
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-}
-function base64(text) {
-  const bytes = new TextEncoder().encode(text);
-  let binary = "";
-  bytes.forEach((b) => binary += String.fromCharCode(b));
-  return btoa(binary);
-}
-function normalizeLocalAddress(address) {
-  let text = address.trim();
-  if (!text) return void 0;
-  if (!text.includes("://")) text = `http://${text}`;
-  const match = /^(https?):\/\/([^/\s]+)/i.exec(text);
-  return match ? `${match[1].toLowerCase()}://${match[2]}` : void 0;
-}
 
 // src/keba/variables.ts
 var P = "APPL.CtrlAppl.sParam";
@@ -197,6 +161,16 @@ var KebaVar = {
     operatingMode: (i) => `${P}.heatCircuit[${i}].param.operatingMode`,
     heatRequest: (i) => `${P}.heatCircuit[${i}].values.heatRequest`
   },
+  heatPump: {
+    flowTemperature: (i) => `${P}.heatpump[${i}].TempHeatFlow.values.actValue`,
+    returnTemperature: (i) => `${P}.heatpump[${i}].TempHeatReflux.values.actValue`,
+    sourceInTemperature: (i) => `${P}.heatpump[${i}].TempSourceIn.values.actValue`,
+    sourceOutTemperature: (i) => `${P}.heatpump[${i}].TempSourceOut.values.actValue`
+  },
+  bufferTank: {
+    topTemperature: (i) => `${P}.bufferTank[${i}].topTemp.values.actValue`,
+    midTemperature: (i) => `${P}.bufferTank[${i}].midTemp.values.actValue`
+  },
   hotWaterTank: {
     name: (i) => `${P}.hotWaterTank[${i}].param.name`,
     temperature: (i) => `${P}.hotWaterTank[${i}].topTemp.values.actValue`,
@@ -207,11 +181,15 @@ var KebaVar = {
 };
 var allHeatCircuitVars = (i) => Object.values(KebaVar.heatCircuit).map((f) => f(i));
 var allHotWaterVars = (i) => Object.values(KebaVar.hotWaterTank).map((f) => f(i));
+var allHeatPumpVars = (i) => [
+  ...Object.values(KebaVar.heatPump).map((f) => f(i)),
+  ...Object.values(KebaVar.bufferTank).map((f) => f(i))
+];
 var SystemModes = [
   { value: -1, label: "Inbetriebnahme" },
-  { value: 0, label: "Aus (Standby)" },
+  { value: 0, label: "Standby" },
   { value: 1, label: "Nur Warmwasser" },
-  { value: 2, label: "Heizen + Warmwasser" },
+  { value: 2, label: "Automatik heizen" },
   { value: 3, label: "K\xFChlen" },
   { value: 4, label: "Automatik Heizen/K\xFChlen" }
 ];
@@ -231,7 +209,7 @@ var HotWaterModes = [
   { value: 0, label: "Aus" },
   { value: 1, label: "Automatik (Zeitprogramm)" },
   { value: 2, label: "Dauernd Ein" },
-  { value: 3, label: "Einmal aufheizen" }
+  { value: 3, label: "Aufheizen" }
 ];
 var selectableHotWaterModes = [0, 1, 2, 3];
 function modeLabel(modes, value) {
@@ -247,6 +225,7 @@ async function loadSnapshot(client, now = /* @__PURE__ */ new Date()) {
   const names = [KebaVar.outdoorTemperature, KebaVar.systemOperatingMode];
   for (let i = 0; i < circuitCount; i++) names.push(...allHeatCircuitVars(i));
   for (let i = 0; i < tankCount; i++) names.push(...allHotWaterVars(i));
+  names.push(...allHeatPumpVars(0));
   const v = await client.read(names, true);
   const HC = KebaVar.heatCircuit;
   const HW = KebaVar.hotWaterTank;
@@ -275,8 +254,19 @@ async function loadSnapshot(client, now = /* @__PURE__ */ new Date()) {
     operatingMode: toInt(v[HW.operatingMode(i)]),
     heatRequest: toBool(v[HW.heatRequest(i)])
   }));
+  const HP = KebaVar.heatPump;
+  const BT = KebaVar.bufferTank;
+  const heatPump = {
+    flowTemperature: toNumber(v[HP.flowTemperature(0)]),
+    returnTemperature: toNumber(v[HP.returnTemperature(0)]),
+    sourceInTemperature: toNumber(v[HP.sourceInTemperature(0)]),
+    sourceOutTemperature: toNumber(v[HP.sourceOutTemperature(0)]),
+    bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
+    bufferMidTemperature: toNumber(v[BT.midTemperature(0)])
+  };
   return {
     outdoorTemperature: toNumber(v[KebaVar.outdoorTemperature]),
+    heatPump: Object.values(heatPump).some((x) => x !== void 0) ? heatPump : void 0,
     systemOperatingMode: toInt(v[KebaVar.systemOperatingMode]),
     heatCircuits,
     hotWaterTanks,
@@ -740,7 +730,10 @@ var temperature = (address, writable) => ({
   scale: 0.1,
   writable
 });
-var raw = (address) => ({ address, scale: 1 });
+var raw = (address, writable) => ({ address, scale: 1, writable });
+var HEAT_CIRCUIT_MODES = { min: 0, max: 3, allowed: [0, 1, 2, 3] };
+var HOT_WATER_MODES = { min: 0, max: 3, allowed: [0, 1, 2, 3] };
+var SYSTEM_MODES = { min: 0, max: 2, allowed: [0, 1, 2] };
 function buildRegisterMap(circuitCount) {
   const map = /* @__PURE__ */ new Map();
   const HC = KebaVar.heatCircuit;
@@ -749,13 +742,22 @@ function buildRegisterMap(circuitCount) {
     map.set(HC.setValue(i), temperature(base + 2));
     map.set(HC.normalSetTemperature(i), temperature(base + 4, { min: 10, max: 30 }));
     map.set(HC.reducedSetTemperature(i), temperature(base + 5, { min: 10, max: 30 }));
-    map.set(HC.operatingMode(i), raw(base + 7));
+    map.set(HC.operatingMode(i), raw(base + 7, HEAT_CIRCUIT_MODES));
     map.set(HC.heatRequest(i), raw(base + 8));
   }
   const HW = KebaVar.hotWaterTank;
   map.set(HW.temperature(0), temperature(401));
   map.set(HW.setTemperature(0), temperature(402, { min: 30, max: 60 }));
-  map.set(HW.operatingMode(0), raw(403));
+  map.set(HW.operatingMode(0), raw(403, HOT_WATER_MODES));
+  map.set(KebaVar.systemOperatingMode, raw(1500, SYSTEM_MODES));
+  map.set(KebaVar.outdoorTemperature, temperature(1502));
+  const HP = KebaVar.heatPump;
+  map.set(HP.flowTemperature(0), temperature(705));
+  map.set(HP.returnTemperature(0), temperature(710));
+  map.set(HP.sourceInTemperature(0), temperature(708));
+  map.set(HP.sourceOutTemperature(0), temperature(709));
+  map.set(KebaVar.bufferTank.topTemperature(0), temperature(601));
+  map.set(KebaVar.bufferTank.midTemperature(0), temperature(603));
   return map;
 }
 function groupAddresses(addresses, maxGap = 16, maxCount = MAX_READ) {
@@ -816,7 +818,7 @@ var ModbusTransport = class {
       result[name] = {
         name,
         value: formatValue(toSigned16(rawValue) * mapping.scale),
-        attributes: withAttributes && mapping.writable ? { lowerLimit: String(mapping.writable.min), upperLimit: String(mapping.writable.max) } : void 0
+        attributes: withAttributes && mapping.writable && mapping.scale !== 1 ? { lowerLimit: String(mapping.writable.min), upperLimit: String(mapping.writable.max) } : void 0
       };
     }
     return result;
@@ -828,7 +830,8 @@ var ModbusTransport = class {
         throw new KebaError("server", "Diese Einstellung ist \xFCber Modbus noch nicht freigeschaltet.");
       }
       const number = Number(value);
-      if (!Number.isFinite(number) || number < mapping.writable.min || number > mapping.writable.max) {
+      const { min, max, allowed } = mapping.writable;
+      if (!Number.isFinite(number) || number < min || number > max || allowed && !allowed.includes(number)) {
         throw new KebaError("server", `Wert ${value} liegt au\xDFerhalb von ${mapping.writable.min}\u2013${mapping.writable.max}.`);
       }
       try {
@@ -871,10 +874,7 @@ var defaultSettings = {
   circuitNames: "Puffer FBH, Heizk\xF6rper",
   portalUsername: "",
   portalPassword: "",
-  portalDevice: "WebHmi",
-  localAddress: "",
-  username: "",
-  password: ""
+  portalDevice: "WebHmi"
 };
 function circuitNameList(s) {
   const names = s.circuitNames.split(",").map((n) => n.trim()).filter(Boolean).slice(0, 8);
@@ -882,37 +882,36 @@ function circuitNameList(s) {
 }
 var hasPortalCredentials = (s) => s.portalUsername.trim() !== "" && s.portalPassword !== "";
 function isConfigured(s) {
-  switch (s.mode) {
-    case "modbus":
-      return s.modbusAddress.trim() !== "";
-    case "remote":
-      return hasPortalCredentials(s);
-    case "local":
-      return s.localAddress.trim() !== "";
-  }
+  return s.mode === "modbus" ? s.modbusAddress.trim() !== "" : hasPortalCredentials(s);
 }
 var KEY = "heizung.settings";
-var SECRET_KEYS = { password: "heizung.password", portalPassword: "heizung.portalPassword" };
+var PORTAL_PASSWORD_KEY = "heizung.portalPassword";
+var LEGACY_PASSWORD_KEY = "heizung.password";
 async function loadSettings() {
   try {
     const raw2 = await AsyncStorage.getItem(KEY);
     const stored = raw2 ? JSON.parse(raw2) : {};
-    const password = await SecureStore.getItemAsync(SECRET_KEYS.password) ?? "";
-    const portalPassword = await SecureStore.getItemAsync(SECRET_KEYS.portalPassword) ?? "";
-    return { ...defaultSettings, ...stored, password, portalPassword };
+    const portalPassword = await SecureStore.getItemAsync(PORTAL_PASSWORD_KEY) ?? "";
+    const mode = stored.mode === "remote" ? "remote" : "modbus";
+    return {
+      mode,
+      modbusAddress: stored.modbusAddress ?? defaultSettings.modbusAddress,
+      circuitNames: stored.circuitNames ?? defaultSettings.circuitNames,
+      portalUsername: stored.portalUsername ?? defaultSettings.portalUsername,
+      portalDevice: stored.portalDevice ?? defaultSettings.portalDevice,
+      portalPassword
+    };
   } catch {
     return defaultSettings;
   }
 }
 async function saveSettings(settings) {
-  const { password, portalPassword, ...rest } = settings;
+  const { portalPassword, ...rest } = settings;
   try {
     await AsyncStorage.setItem(KEY, JSON.stringify(rest));
-    for (const [field, key] of Object.entries(SECRET_KEYS)) {
-      const value = field === "password" ? password : portalPassword;
-      if (value) await SecureStore.setItemAsync(key, value);
-      else await SecureStore.deleteItemAsync(key);
-    }
+    if (portalPassword) await SecureStore.setItemAsync(PORTAL_PASSWORD_KEY, portalPassword);
+    else await SecureStore.deleteItemAsync(PORTAL_PASSWORD_KEY);
+    await SecureStore.deleteItemAsync(LEGACY_PASSWORD_KEY);
   } catch {
   }
 }
@@ -1063,17 +1062,7 @@ function HeatingProvider({ children }) {
         const mb = new ModbusTcpClient(factory, host, 502, 1);
         modbusClient.current = mb;
         await start(new ModbusTransport(mb, { circuitNames: circuitNameList(settings) }));
-        return;
       }
-      const url = normalizeLocalAddress(settings.localAddress);
-      if (!url) {
-        fail("Bitte die IP-Adresse des Reglers eintragen.");
-        return;
-      }
-      setRemoteStage("idle");
-      bridge.reset();
-      const auth = settings.username ? { username: settings.username, password: settings.password } : void 0;
-      await start(new KebaClient(directPost(url, auth)));
     },
     [bridge, closeModbus, fail, start, startRemote]
   );
@@ -1556,13 +1545,15 @@ function Dashboard({ navigate }) {
       <SystemCard />
       {snapshot.heatCircuits.map((circuit) => <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => navigate({ name: "circuit", index: circuit.index })} />)}
       {snapshot.hotWaterTanks.map((tank) => <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: "hotWater", index: tank.index })} />)}
+      {snapshot.heatPump && <HeatPumpCard heatPump={snapshot.heatPump} />}
       <Text3 style={[styles3.footer, { color: theme.secondary }]}>
         {writing ? "Wird gespeichert \u2026" : `${offline ? "Keine Verbindung \u2013 letzter Stand" : "Stand"}: ${snapshot.fetchedAt.toLocaleTimeString("de-DE")}`}
       </Text3>
     </ScrollView2>;
 }
 function SystemCard() {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.systemOperatingMode);
   const theme = useTheme();
   const [picking, setPicking] = useState3(false);
   if (!snapshot) return null;
@@ -1574,7 +1565,12 @@ function SystemCard() {
       {
     /* Über Modbus ist die Anlagen-Betriebsart (noch) nicht bekannt → Auswahl ausblenden. */
   }
-      {snapshot.systemOperatingMode !== void 0 && <Pressable2 onPress={() => setPicking(true)} disabled={writing} style={styles3.systemMode} hitSlop={8}>
+      {snapshot.systemOperatingMode !== void 0 && <Pressable2
+    onPress={() => setPicking(true)}
+    disabled={writing || !modeWritable}
+    style={styles3.systemMode}
+    hitSlop={8}
+  >
           <Text3 style={[styles3.caption, { color: theme.secondary }]}>Anlage</Text3>
           <Text3 style={[styles3.systemModeText, { color: theme.accent }]}>
             {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
@@ -1635,6 +1631,26 @@ function HeatCircuitCard({ circuit, onPress }) {
       </View2>
     </Card>;
 }
+function HeatPumpCard({ heatPump }) {
+  const theme = useTheme();
+  const rows = [
+    ["Vorlauf", heatPump.flowTemperature],
+    ["R\xFCcklauf", heatPump.returnTemperature],
+    ["Puffer oben", heatPump.bufferTopTemperature],
+    ["Puffer Mitte", heatPump.bufferMidTemperature],
+    ["Luft rein", heatPump.sourceInTemperature],
+    ["Luft raus", heatPump.sourceOutTemperature]
+  ];
+  return <Card>
+      <Text3 style={[styles3.cardTitle, { color: theme.text, marginBottom: 8 }]}>Wärmepumpe</Text3>
+      <View2 style={styles3.grid}>
+        {rows.filter(([, value]) => value !== void 0).map(([label, value]) => <View2 key={label} style={styles3.gridItem}>
+              <Text3 style={[styles3.caption, { color: theme.secondary }]}>{label}</Text3>
+              <Text3 style={[styles3.gridValue, { color: theme.text }]}>{formatTemp(value)}</Text3>
+            </View2>)}
+      </View2>
+    </Card>;
+}
 function HotWaterCard({ tank, onPress }) {
   const theme = useTheme();
   return <Card onPress={onPress} style={styles3.waterCard}>
@@ -1667,6 +1683,9 @@ var styles3 = StyleSheet3.create({
   waterCard: { flexDirection: "row", alignItems: "center", gap: 12 },
   drop: { fontSize: 28 },
   footer: { textAlign: "center", fontSize: 13, marginTop: 4 },
+  grid: { flexDirection: "row", flexWrap: "wrap", rowGap: 10 },
+  gridItem: { width: "50%" },
+  gridValue: { fontSize: 20, fontWeight: "600", fontVariant: ["tabular-nums"] },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 24 },
   sheet: { gap: 10 },
   sheetTitle: { fontSize: 17, fontWeight: "600", textAlign: "center" }
@@ -1796,58 +1815,8 @@ var styles4 = StyleSheet4.create({
 });
 
 // src/screens/SettingsScreen.tsx
-import { useRef as useRef3, useState as useState4 } from "react";
+import { useState as useState4 } from "react";
 import { Pressable as Pressable3, ScrollView as ScrollView3, StyleSheet as StyleSheet5, Text as Text5, TextInput, View as View4 } from "react-native";
-
-// src/keba/discovery.ts
-var DEFAULT_PORTS = [80, 8080];
-function subnetPrefix(address) {
-  const match = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}/.exec(address);
-  if (!match) return void 0;
-  const parts = match.slice(1, 4).map(Number);
-  return parts.every((n) => n >= 0 && n <= 255) ? parts.join(".") : void 0;
-}
-function candidateUrls(prefix, ports = DEFAULT_PORTS) {
-  const urls = [];
-  for (const port of ports) {
-    for (let host = 1; host <= 254; host++) {
-      urls.push(port === 80 ? `http://${prefix}.${host}` : `http://${prefix}.${host}:${port}`);
-    }
-  }
-  return urls;
-}
-async function probeController(url, timeoutMs = 2e3) {
-  try {
-    const values = await new KebaClient(directPost(url, void 0, timeoutMs)).read([KebaVar.outdoorTemperature]);
-    const variable = values[KebaVar.outdoorTemperature];
-    if (!variable) return void 0;
-    const temperature2 = Number(variable.value);
-    return { url, outdoorTemperature: Number.isFinite(temperature2) ? temperature2 : void 0 };
-  } catch {
-    return void 0;
-  }
-}
-async function scanForControllers(prefix, options = {}) {
-  const { ports = DEFAULT_PORTS, concurrency = 32, timeoutMs = 2e3, onProgress, isCancelled } = options;
-  const probe = options.probe ?? probeController;
-  const urls = candidateUrls(prefix, ports);
-  const found = [];
-  let next = 0;
-  let done = 0;
-  const worker = async () => {
-    while (next < urls.length && !isCancelled?.()) {
-      const url = urls[next++];
-      const result = await probe(url, timeoutMs);
-      if (result) found.push(result);
-      done++;
-      onProgress?.(done, urls.length);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
-  return found;
-}
-
-// src/screens/SettingsScreen.tsx
 function SettingsScreen({
   settings,
   onChange,
@@ -1863,7 +1832,7 @@ function SettingsScreen({
     onDone();
     await connect(draft);
   };
-  const canConnect = draft.mode === "remote" ? true : draft.mode === "modbus" ? draft.modbusAddress.trim() !== "" : normalizeLocalAddress(draft.localAddress) !== void 0;
+  const canConnect = draft.mode === "remote" || draft.modbusAddress.trim() !== "";
   return <ScrollView3
     style={{ backgroundColor: theme.background }}
     contentContainerStyle={styles5.content}
@@ -1871,7 +1840,7 @@ function SettingsScreen({
   >
       <SectionTitle>Verbindung</SectionTitle>
       <View4 style={[styles5.segment, { backgroundColor: theme.pressed }]}>
-        {["modbus", "remote", "local"].map((mode) => <Pressable3
+        {["modbus", "remote"].map((mode) => <Pressable3
     key={mode}
     onPress={() => update({ mode })}
     style={[styles5.segmentItem, draft.mode === mode && { backgroundColor: theme.card }]}
@@ -1907,7 +1876,7 @@ function SettingsScreen({
               In Expo Go/Snack gibt es keine direkten Netzwerkverbindungen. Modbus funktioniert erst in der
               eigenen App-Version (EAS Build). Zum Testen in Snack „Fernzugriff“ wählen.
             </Text5>}
-        </> : draft.mode === "remote" ? <>
+        </> : <>
           <SectionTitle>Zugang remote.keba.com</SectionTitle>
           <Card style={styles5.form}>
             <Field
@@ -1937,37 +1906,6 @@ function SettingsScreen({
             öffnet „WebHmi“ und steuert die Heizung direkt – du siehst die Portal-Seite nicht mehr.
             Das Passwort liegt verschlüsselt im iOS-Schlüsselbund.
           </Text5>
-        </> : <>
-          <SectionTitle>Regler im Heimnetz</SectionTitle>
-          <Card style={styles5.form}>
-            <Field
-    value={draft.localAddress}
-    onChangeText={(localAddress) => update({ localAddress })}
-    placeholder="Adresse, z. B. https://192.168.0.100"
-    keyboardType="url"
-  />
-            <Field
-    value={draft.username}
-    onChangeText={(username) => update({ username })}
-    placeholder="Benutzer (falls nötig)"
-  />
-            <Field
-    value={draft.password}
-    onChangeText={(password) => update({ password })}
-    placeholder="Passwort (falls nötig)"
-    secureTextEntry
-    last
-  />
-          </Card>
-          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
-            Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
-            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale). Neuere Regler
-            verlangen https:// und Benutzer/Passwort.
-          </Text5>
-          <ControllerSearch
-    address={draft.localAddress}
-    onSelect={(url) => update({ localAddress: url.replace(/^http:\/\//, "") })}
-  />
         </>}
 
       <Button
@@ -1980,48 +1918,9 @@ function SettingsScreen({
       {phase !== "notConnected" && <Button title="Verbindung trennen" kind="danger" style={styles5.action} onPress={disconnect} />}
     </ScrollView3>;
 }
-function ControllerSearch({ address, onSelect }) {
-  const theme = useTheme();
-  const [progress, setProgress] = useState4();
-  const [results, setResults] = useState4();
-  const cancelled = useRef3(false);
-  const prefix = subnetPrefix(address) ?? "192.168.0";
-  const searching = progress !== void 0;
-  const search = async () => {
-    cancelled.current = false;
-    setResults(void 0);
-    setProgress({ done: 0, total: 1 });
-    const found = await scanForControllers(prefix, {
-      onProgress: (done, total) => setProgress({ done, total }),
-      isCancelled: () => cancelled.current
-    });
-    setProgress(void 0);
-    setResults(found);
-  };
-  return <View4 style={styles5.search}>
-      {searching ? <>
-          <Text5 style={[styles5.searchText, { color: theme.text }]}>
-            Suche in {prefix}.x … {Math.round(progress.done / progress.total * 100)} %
-          </Text5>
-          <Button title="Suche abbrechen" kind="secondary" onPress={() => cancelled.current = true} />
-        </> : <Button title={`Regler im WLAN suchen (${prefix}.x)`} kind="secondary" onPress={search} />}
-      {results?.length === 0 && <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
-          Kein Regler gefunden. Ist das Handy im selben WLAN wie die Wärmepumpe (nicht im Gäste-WLAN)?
-          Hat iOS gefragt, ob die App „Geräte im lokalen Netzwerk“ finden darf? Das muss erlaubt sein
-          (Einstellungen → Datenschutz → Lokales Netzwerk → Expo Go).
-        </Text5>}
-      {results?.map((r) => <Card key={r.url} onPress={() => onSelect(r.url)} style={styles5.result}>
-          <Text5 style={[styles5.searchText, { color: theme.text }]}>Gefunden: {r.url}</Text5>
-          <Text5 style={[styles5.footnote, { color: theme.secondary, marginHorizontal: 0 }]}>
-            Außentemperatur {r.outdoorTemperature?.toFixed(1).replace(".", ",") ?? "\u2013"}° · antippen zum Übernehmen
-          </Text5>
-        </Card>)}
-    </View4>;
-}
 var MODE_LABELS = {
   modbus: "Modbus",
-  remote: "Fernzugriff",
-  local: "Web-HMI"
+  remote: "KEBA Fernzugriff"
 };
 function Field({ last, ...props }) {
   const theme = useTheme();
@@ -2044,10 +1943,7 @@ var styles5 = StyleSheet5.create({
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },
   form: { paddingVertical: 0 },
   input: { fontSize: 17, paddingVertical: 14 },
-  action: { marginTop: 20 },
-  search: { marginTop: 16, gap: 10 },
-  searchText: { fontSize: 16, fontWeight: "500" },
-  result: { gap: 2 }
+  action: { marginTop: 20 }
 });
 
 // App.tsx

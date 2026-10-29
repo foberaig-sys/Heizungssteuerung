@@ -110,15 +110,24 @@ zweier Scans (`modbus_scan.py --compare`) eindeutig zugeordnet.
 |---|---|---|---|
 | 2 / 52 | Heizkreis 1/2 aktueller Raum-Sollwert (`values.setValue`) | ×0,1 °C | bestätigt (zieht mit) |
 | 3 / 53 | Heizkreis 1/2 gewählter Sollwert (`values.selectedSetTemp`) | ×0,1 °C | bestätigt (zieht mit) |
-| 4 / 54 | Heizkreis 1/2 Komforttemperatur (`param.normalSetTemp`) | ×0,1 °C | **bestätigt** (HK 1) |
-| 5 / 55 | Heizkreis 1/2 Absenktemperatur (`param.reducedSetTemp`) | ×0,1 °C | **bestätigt** (HK 1) |
-| 7 / 57 | Heizkreis 1/2 Betriebsart (1 = Automatik) | – | vermutet |
+| 4 / 54 | Heizkreis 1/2 Komforttemperatur (`param.normalSetTemp`) | ×0,1 °C | **bestätigt, schreibbar** |
+| 5 / 55 | Heizkreis 1/2 Absenktemperatur (`param.reducedSetTemp`) | ×0,1 °C | **bestätigt, schreibbar** |
+| 7 / 57 | Heizkreis 1/2 Betriebsart: 0 Aus (⏻), 1 Automatik (Uhr), 2 Komfort (Sonne), 3 Absenkung (Mond), 5 Party | – | **bestätigt** (1→2 per Sonne) |
 | 8 / 58 | Heizkreis 1/2 Heizanforderung | – | vermutet |
-| 401 | Warmwasser oben | ×0,1 °C | laut evcc |
-| 402 | Warmwasser-Solltemperatur (`param.normalSetTempMax`) | ×0,1 °C | **bestätigt** |
-| 403 | Warmwasser-Betriebsart (1 = Automatik) | – | vermutet |
-| 601 | Puffer oben | ×0,1 °C | laut evcc |
-| 707 | Leistungsaufnahme Wärmepumpe | W | laut evcc |
+| 401 | Warmwasser oben | ×0,1 °C | bestätigt (= Display) |
+| 402 | Warmwasser-Solltemperatur (`param.normalSetTempMax`) | ×0,1 °C | **bestätigt, schreibbar** |
+| 403 | Warmwasser-Betriebsart: 0 Aus, 1 Automatik, 2 Ein, 3 Aufheizen | – | **bestätigt** (1→3 per „Aufheizen“) |
+| 601 / 603 | Puffer oben / Mitte (`bufferTank[0].topTemp` / `midTemp`) | ×0,1 °C | passt zu Statusbericht |
+| 705 | Vorlauf (`heatpump[0].TempHeatFlow`) | ×0,1 °C | passt zu Statusbericht |
+| 708 / 709 | Quelle Eingang / Ausgang (Luft) | ×0,1 °C | passt zu Display |
+| 710 | Rücklauf (`heatpump[0].TempHeatReflux`) | ×0,1 °C | passt zu Display |
+| 711 / 712 | Lüfter / Umwälzpumpe | % | passt zu Display |
+| 706 / 707 / 718 | Leistungen bzw. Kompressor | ? | ungeklärt |
+| 1500 | Anlagenbetriebsart: 0 Standby, 1 Warmwasser, 2 Automatik heizen | – | **bestätigt** (2→1) |
+| 1502 | Außentemperatur | ×0,1 °C | bestätigt (= Display) |
+
+Die Korrektur der Pfeiltasten (`offsetRoomTemp`) ist über Modbus nicht auffindbar; die App verstellt bei Modbus
+stattdessen die Komforttemperatur. Input-Register (Funktion 4) liefert der Regler keine.
 
 Schreiben (Funktion 6) testet `tools/modbus_write.py` – nur für bestätigte Register, mit Rückfrage und
 Kontroll-Lesen.

@@ -1,6 +1,6 @@
 // Fasst die einzelnen Reglervariablen zu einem Zustand zusammen und kapselt die Schreibbefehle.
 import { KebaClient, KebaVariable, Range, formatNumber, toBool, toInt, toNumber, toRange } from './client';
-import { KebaVar, allHeatCircuitVars, allHotWaterVars } from './variables';
+import { KebaVar, allHeatCircuitVars, allHeatPumpVars, allHotWaterVars } from './variables';
 
 export interface Setpoint {
   value: number;
@@ -30,8 +30,19 @@ export interface HotWaterStatus {
   heatRequest?: boolean;
 }
 
+/** Messwerte der (ersten) Wärmepumpe und des Pufferspeichers – nur Anzeige. */
+export interface HeatPumpStatus {
+  flowTemperature?: number;
+  returnTemperature?: number;
+  sourceInTemperature?: number;
+  sourceOutTemperature?: number;
+  bufferTopTemperature?: number;
+  bufferMidTemperature?: number;
+}
+
 export interface HeatingSnapshot {
   outdoorTemperature?: number;
+  heatPump?: HeatPumpStatus;
   systemOperatingMode?: number;
   heatCircuits: HeatCircuitStatus[];
   hotWaterTanks: HotWaterStatus[];
@@ -49,6 +60,7 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
   const names = [KebaVar.outdoorTemperature, KebaVar.systemOperatingMode];
   for (let i = 0; i < circuitCount; i++) names.push(...allHeatCircuitVars(i));
   for (let i = 0; i < tankCount; i++) names.push(...allHotWaterVars(i));
+  names.push(...allHeatPumpVars(0));
 
   const v = await client.read(names, true);
   const HC = KebaVar.heatCircuit;
@@ -81,8 +93,20 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
     heatRequest: toBool(v[HW.heatRequest(i)]),
   }));
 
+  const HP = KebaVar.heatPump;
+  const BT = KebaVar.bufferTank;
+  const heatPump: HeatPumpStatus = {
+    flowTemperature: toNumber(v[HP.flowTemperature(0)]),
+    returnTemperature: toNumber(v[HP.returnTemperature(0)]),
+    sourceInTemperature: toNumber(v[HP.sourceInTemperature(0)]),
+    sourceOutTemperature: toNumber(v[HP.sourceOutTemperature(0)]),
+    bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
+    bufferMidTemperature: toNumber(v[BT.midTemperature(0)]),
+  };
+
   return {
     outdoorTemperature: toNumber(v[KebaVar.outdoorTemperature]),
+    heatPump: Object.values(heatPump).some((x) => x !== undefined) ? heatPump : undefined,
     systemOperatingMode: toInt(v[KebaVar.systemOperatingMode]),
     heatCircuits,
     hotWaterTanks,
