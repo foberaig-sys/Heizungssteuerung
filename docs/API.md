@@ -100,19 +100,25 @@ Bekannte Holding-Register laut der M-TEC-Vorlage des Projekts [evcc](https://git
 
 Die übrige Belegung lässt sich mit `tools/modbus_scan.py` (nur lesend) durch Vergleich mit den Display-Werten finden.
 
-### Erster Scan der eigenen Anlage (vorläufig, noch durch Änderungsvergleich zu bestätigen)
+### Belegung der eigenen Anlage
 
 Die Register sind in Blöcken organisiert: Heizkreis *i* ab `50·i` (8 Blöcke 0–399), Warmwasserspeicher ab
-`400 + 50·i`, Puffer ab 600, Wärmepumpe ab 700. Zuordnung durch Vergleich mit dem Statusbericht:
+`400 + 50·i`, Puffer ab 600, Wärmepumpe ab 700. **Bestätigt** = durch Verstellen am Display und Vergleich
+zweier Scans (`modbus_scan.py --compare`) eindeutig zugeordnet.
 
-| Register | Wert beim Scan | vermutete Bedeutung |
-|---|---|---|
-| 4 / 54 | 220 | Heizkreis 1/2 Komfort-Temperatur (×0,1 °C), `normalSetTemp` = 22 |
-| 5 / 55 | 195 | Heizkreis 1/2 Absenk-Temperatur (×0,1 °C), `reducedSetTemp` = 19,5 |
-| 7 / 57 | 1 | Heizkreis 1/2 Betriebsart (1 = Automatik) |
-| 8 / 58 | 1 | Heizkreis 1/2 Heizanforderung |
-| 401 | 476 | Warmwasser oben (×0,1 °C) |
-| 402 | 480 | Warmwasser-Soll (×0,1 °C), `normalSetTempMax` = 48 |
-| 403 | 1 | Warmwasser-Betriebsart (1 = Automatik) |
-| 601 | 452 | Puffer oben (×0,1 °C) |
-| 707 | 804 | Leistungsaufnahme Wärmepumpe (W) |
+| Register | Bedeutung | Skalierung | Status |
+|---|---|---|---|
+| 2 / 52 | Heizkreis 1/2 aktueller Raum-Sollwert (`values.setValue`) | ×0,1 °C | bestätigt (zieht mit) |
+| 3 / 53 | Heizkreis 1/2 gewählter Sollwert (`values.selectedSetTemp`) | ×0,1 °C | bestätigt (zieht mit) |
+| 4 / 54 | Heizkreis 1/2 Komforttemperatur (`param.normalSetTemp`) | ×0,1 °C | **bestätigt** (HK 1) |
+| 5 / 55 | Heizkreis 1/2 Absenktemperatur (`param.reducedSetTemp`) | ×0,1 °C | **bestätigt** (HK 1) |
+| 7 / 57 | Heizkreis 1/2 Betriebsart (1 = Automatik) | – | vermutet |
+| 8 / 58 | Heizkreis 1/2 Heizanforderung | – | vermutet |
+| 401 | Warmwasser oben | ×0,1 °C | laut evcc |
+| 402 | Warmwasser-Solltemperatur (`param.normalSetTempMax`) | ×0,1 °C | **bestätigt** |
+| 403 | Warmwasser-Betriebsart (1 = Automatik) | – | vermutet |
+| 601 | Puffer oben | ×0,1 °C | laut evcc |
+| 707 | Leistungsaufnahme Wärmepumpe | W | laut evcc |
+
+Schreiben (Funktion 6) testet `tools/modbus_write.py` – nur für bestätigte Register, mit Rückfrage und
+Kontroll-Lesen.

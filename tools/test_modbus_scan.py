@@ -9,6 +9,7 @@ import modbus_scan
 # Register 401 = 478 (47,8 °C), 601 = 312, 707 = 1450 W, 50 = -12 (-1,2 °C). Ab 900 gibt es nichts (Ausnahme 2).
 REGISTERS = {401: 478, 601: 312, 707: 1450, 50: (-12) & 0xFFFF}
 LIMIT = 900
+READ_ONLY = {5}
 
 
 class FakeModbus(socketserver.BaseRequestHandler):
@@ -19,7 +20,13 @@ class FakeModbus(socketserver.BaseRequestHandler):
                 return
             tid, _proto, length, unit = struct.unpack(">HHHB", header)
             function, address, count = struct.unpack(">BHH", self.request.recv(length - 1))
-            if address + count > LIMIT:
+            if function == 6:
+                if address in READ_ONLY:
+                    pdu = struct.pack(">BB", function | 0x80, 2)
+                else:
+                    REGISTERS[address] = count  # bei Funktion 6 ist das der Wert
+                    pdu = struct.pack(">BHH", function, address, count)
+            elif address + count > LIMIT:
                 pdu = struct.pack(">BB", function | 0x80, 2)
             else:
                 data = [REGISTERS.get(address + i, 0) for i in range(count)]
@@ -91,6 +98,57 @@ class ModbusScanTests(unittest.TestCase):
         self.assertRegex(text, r"401 +478 +470")
         self.assertRegex(text, r"402 +0 +490 +0\.0 +49\.0")
         self.assertNotIn("707", text)
+
+
+class ModbusWriteTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), FakeModbus)
+        cls.server.daemon_threads = True
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.port = cls.server.server_address[1]
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def run_write(self, *args, answer="j"):
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+
+        import modbus_write
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = modbus_write.main(["--host", "127.0.0.1", "--port", str(self.port), *args], ask=lambda _: answer)
+        return code, out.getvalue() + err.getvalue()
+
+    def test_writes_after_confirmation_and_reads_back(self):
+        REGISTERS[402] = 480
+        code, text = self.run_write("warmwasser", "49")
+        self.assertEqual(code, 0, text)
+        self.assertEqual(REGISTERS[402], 490)
+        self.assertIn("aktuell 48.0, neu 49.0", text)
+        self.assertIn("OK", text)
+
+    def test_nothing_written_without_confirmation(self):
+        REGISTERS[4] = 220
+        code, text = self.run_write("fbh-komfort", "22.5", answer="n")
+        self.assertEqual(code, 0)
+        self.assertEqual(REGISTERS[4], 220)
+        self.assertIn("Abgebrochen", text)
+
+    def test_rejects_out_of_range(self):
+        REGISTERS[402] = 480
+        code, text = self.run_write("warmwasser", "75")
+        self.assertEqual(code, 1)
+        self.assertEqual(REGISTERS[402], 480)
+        self.assertIn("außerhalb", text)
+
+    def test_reports_controller_refusal(self):
+        code, text = self.run_write("fbh-absenk", "19")
+        self.assertEqual(code, 1)
+        self.assertIn("lehnt das Schreiben ab", text)
 
 
 if __name__ == "__main__":
