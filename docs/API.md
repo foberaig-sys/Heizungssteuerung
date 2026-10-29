@@ -85,3 +85,17 @@ Die Pfeiltasten der HMI schreiben genau diese Korrektur, in Schritten von ±0,5 
   z. B. Loxone. Die Registerbelegung steht auf dem Regler in
   `config/KeEnergy.MTec-*/ModbusServerRegisters.cfg` und ist nicht Teil des Statusberichts.
 - `heatCircuit[i].values.heatRequest` ist `SINT16` (0 = keine Anforderung), nicht `BOOL`.
+
+## Modbus TCP (Port 502, ohne Passwort)
+
+Bekannte Holding-Register laut der M-TEC-Vorlage des Projekts [evcc](https://github.com/evcc-io/evcc)
+(`templates/definition/charger/mtec.yaml`):
+
+| Register | Bedeutung | Typ |
+|---|---|---|
+| 401 | Warmwasser oben | int16, ×0,1 °C |
+| 601 | Puffer | int16, ×0,1 °C |
+| 707 | aktuelle Leistungsaufnahme der Wärmepumpe | int16, W |
+| 1000 | PV-Überschussleistung (schreibbar) | int16, W |
+
+Die übrige Belegung lässt sich mit `tools/modbus_scan.py` (nur lesend) durch Vergleich mit den Display-Werten finden.
