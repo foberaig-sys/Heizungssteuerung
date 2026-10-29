@@ -141,16 +141,12 @@ export function toInt(v: KebaVariable | undefined): number | undefined {
 }
 
 export function toBool(v: KebaVariable | undefined): boolean | undefined {
-  switch (v?.value.toLowerCase()) {
-    case 'true':
-    case '1':
-      return true;
-    case 'false':
-    case '0':
-      return false;
-    default:
-      return undefined;
-  }
+  const text = v?.value.trim().toLowerCase();
+  if (text === 'true') return true;
+  if (text === 'false') return false;
+  // Manche Flags sind Zahlen (z. B. heatRequest ist SINT16): alles außer 0 heißt „aktiv“.
+  const n = text === undefined || text === '' ? NaN : Number(text);
+  return Number.isFinite(n) ? n !== 0 : undefined;
 }
 
 export interface Range {

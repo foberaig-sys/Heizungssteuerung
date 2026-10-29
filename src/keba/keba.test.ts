@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import vm from 'node:vm';
 
 import { WebViewBridge, buildFetchScript, hmiBaseUrl } from './bridge';
-import { KebaClient, KebaError, RawPost, formatNumber, normalizeLocalAddress, parseVariables, validate } from './client';
+import { KebaClient, KebaError, RawPost, formatNumber, normalizeLocalAddress, parseVariables, toBool, validate } from './client';
 import { commands, loadSnapshot } from './service';
 
 const P = 'APPL.CtrlAppl.sParam';
@@ -140,4 +140,15 @@ test('Bridge: Zeitüberschreitung und fehlende WebView', async () => {
   bridge.attach({ injectJavaScript: () => {} });
   await assert.rejects(bridge.post('/x', ''), (e: KebaError) => e.kind === 'network');
   assert.match(buildFetchScript('a', '/p', '"quote"'), /body: "\\"quote\\""/);
+});
+
+test('Flags als Zahl oder Text', () => {
+  const v = (value: string) => ({ name: 'x', value });
+  assert.equal(toBool(v('1')), true);
+  assert.equal(toBool(v('2')), true);
+  assert.equal(toBool(v('0')), false);
+  assert.equal(toBool(v('true')), true);
+  assert.equal(toBool(v('false')), false);
+  assert.equal(toBool(v('')), undefined);
+  assert.equal(toBool(v('abc')), undefined);
 });

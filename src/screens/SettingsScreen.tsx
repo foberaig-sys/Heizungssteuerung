@@ -91,7 +91,7 @@ export function SettingsScreen({
             <Field
               value={draft.localAddress}
               onChangeText={(localAddress) => update({ localAddress })}
-              placeholder="IP-Adresse, z. B. 192.168.1.50"
+              placeholder="Adresse, z. B. https://192.168.0.100"
               keyboardType="url"
             />
             <Field
@@ -109,7 +109,8 @@ export function SettingsScreen({
           </Card>
           <Text style={[styles.footnote, { color: theme.secondary }]}>
             Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
-            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).
+            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale). Neuere Regler
+            verlangen https:// und Benutzer/Passwort.
           </Text>
           <ControllerSearch
             address={draft.localAddress}

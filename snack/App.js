@@ -119,16 +119,11 @@ function toInt(v) {
   return n === void 0 ? void 0 : Math.round(n);
 }
 function toBool(v) {
-  switch (v?.value.toLowerCase()) {
-    case "true":
-    case "1":
-      return true;
-    case "false":
-    case "0":
-      return false;
-    default:
-      return void 0;
-  }
+  const text = v?.value.trim().toLowerCase();
+  if (text === "true") return true;
+  if (text === "false") return false;
+  const n = text === void 0 || text === "" ? NaN : Number(text);
+  return Number.isFinite(n) ? n !== 0 : void 0;
 }
 function toRange(attributes) {
   const min = Number(attributes?.lowerLimit);
@@ -1567,7 +1562,7 @@ function SettingsScreen({
             <Field
     value={draft.localAddress}
     onChangeText={(localAddress) => update({ localAddress })}
-    placeholder="IP-Adresse, z. B. 192.168.1.50"
+    placeholder="Adresse, z. B. https://192.168.0.100"
     keyboardType="url"
   />
             <Field
@@ -1585,7 +1580,8 @@ function SettingsScreen({
           </Card>
           <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
             Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
-            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).
+            oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale). Neuere Regler
+            verlangen https:// und Benutzer/Passwort.
           </Text5>
           <ControllerSearch
     address={draft.localAddress}

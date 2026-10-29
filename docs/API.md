@@ -9,7 +9,7 @@ Alle Aufrufe sind `POST`-Requests mit `Content-Type: application/json; charset=U
 
 | Weg | Basis-URL | Anmeldung |
 |---|---|---|
-| Heimnetz | `http://<IP-des-Reglers>` | keine, bei neuerer Firmware evtl. HTTP Basic Auth |
+| Heimnetz | `https://<IP-des-Reglers>` (selbstsigniertes Zertifikat), ältere Firmware `http://` | HTTP Basic Auth, wenn die Funktion `basic-auth` aktiv ist |
 | Fernzugriff | `https://remote.keba.com:<Port>`, der Port ändert sich bei jeder Sitzung | Cookies der Secomea-Sitzung (`GM_…_GTA`, `JSESSIONID`) |
 
 ## Variablen lesen
@@ -73,3 +73,15 @@ Die Pfeiltasten der HMI schreiben genau diese Korrektur, in Schritten von ±0,5 
 | `var/readAllUnits?action=getUnits`, `var/readAllFormats?action=getFormats` | Einheiten und Formate |
 | `userLevel?action=getUserLevels` | Benutzerebenen (Endkunde = 1) |
 | `eventlogger?action=log` | nur Logging der HMI, für die App nicht nötig |
+
+## Erkenntnisse aus dem Statusbericht (KeEnergy.MTec 2.9.1)
+
+- Regler AP440, Hostname `AP440-1`, im Heimnetz per Kabel (eth0) und IP-Adresse per DHCP.
+- In `/opt/kecontrolapplication/config/default/features/` sind `https` und `basic-auth` aktiv: Die WebHMI im
+  Heimnetz ist nur per HTTPS mit Benutzername/Passwort erreichbar, ein Aufruf über `http://` antwortet nicht.
+- Der Secomea-Agent „WebHmi“ leitet auf `127.0.0.1:80` (`cfg="LO tcp=80"`), also auf den Webserver des
+  Reglers selbst. Deshalb klappt der Fernzugriff ohne Zertifikat und Passwort.
+- Ein **Modbus-TCP-Server** läuft auf `0.0.0.0:502` (ohne Verschlüsselung, ohne Passwort). Diesen Weg nutzt
+  z. B. Loxone. Die Registerbelegung steht auf dem Regler in
+  `config/KeEnergy.MTec-*/ModbusServerRegisters.cfg` und ist nicht Teil des Statusberichts.
+- `heatCircuit[i].values.heatRequest` ist `SINT16` (0 = keine Anforderung), nicht `BOOL`.
