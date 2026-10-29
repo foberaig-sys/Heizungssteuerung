@@ -36,7 +36,7 @@ export function Screen({
         contentInsetAdjustmentBehavior="automatic"
         contentContainerStyle={[
           styles.content,
-          { paddingTop: manual && largeTitle ? insets.top + 8 : 8, paddingBottom: manual ? insets.bottom + 96 : 32 },
+          { paddingTop: manual && (largeTitle || accessory) ? insets.top + 8 : 8, paddingBottom: manual ? insets.bottom + 96 : 32 },
         ]}
         keyboardShouldPersistTaps="handled"
         refreshControl={

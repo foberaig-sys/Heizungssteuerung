@@ -33,6 +33,7 @@ export function HomeScreen() {
   return (
     <Screen
       title="Heizung"
+      largeTitle={false}
       onRefresh={refresh}
       accessory={<Image source={wordmark[scheme]} style={styles.wordmark} resizeMode="contain" accessibilityLabel="M-TEC" />}
     >
@@ -197,7 +198,8 @@ function HotWaterCard({ tank, onPress }: { tank: HotWaterStatus; onPress: () => 
 
 const styles = StyleSheet.create({
   stack: { gap: 12 },
-  wordmark: { width: 84, height: 28, marginTop: 4 },
+  // Nur der Schriftzug als Kopf der Startseite – ersetzt die große Überschrift.
+  wordmark: { width: 120, height: 40, marginTop: 8, marginBottom: 16, marginLeft: 2 },
   flex: { flex: 1 },
   flexShrink: { flexShrink: 1 },
   overview: { flexDirection: 'row' },
