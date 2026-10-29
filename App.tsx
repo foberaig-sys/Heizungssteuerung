@@ -8,7 +8,7 @@ import { Dashboard } from './src/screens/Dashboard';
 import { RemoteHost } from './src/screens/RemoteHost';
 import type { Route } from './src/screens/routes';
 import { SettingsScreen } from './src/screens/SettingsScreen';
-import { Settings, defaultSettings, hasPortalCredentials, loadSettings } from './src/settings';
+import { Settings, defaultSettings, isConfigured, loadSettings } from './src/settings';
 import { HeatingProvider, useHeating } from './src/store';
 import { Button, StatusView } from './src/ui/components';
 import { useTheme } from './src/ui/theme';
@@ -38,8 +38,7 @@ function Main() {
   useEffect(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
-      const ready = loaded.mode === 'remote' ? hasPortalCredentials(loaded) : loaded.localAddress !== '';
-      if (ready) void heating.connect(loaded);
+      if (isConfigured(loaded)) void heating.connect(loaded);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -82,8 +81,7 @@ function Main() {
   }, [heating.phase, route.name, stack.length]);
 
   const connect = () => {
-    const ready = settings.mode === 'remote' ? hasPortalCredentials(settings) : settings.localAddress !== '';
-    if (ready) void heating.connect(settings);
+    if (isConfigured(settings)) void heating.connect(settings);
     else navigate({ name: 'settings' });
   };
 
@@ -176,7 +174,7 @@ function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route)
       return (
         <StatusView
           title="Nicht verbunden"
-          message="Trage einmal deinen Zugang zu remote.keba.com ein. Danach verbindet sich die App bei jedem Start von selbst."
+          message="Richte einmal die Verbindung ein. Danach verbindet sich die App bei jedem Start von selbst."
         >
           <Button title="Einrichten" onPress={() => navigate({ name: 'settings' })} />
         </StatusView>

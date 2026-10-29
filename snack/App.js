@@ -8,6 +8,7 @@
 //   @react-native-async-storage/async-storage@2.2.0
 //   expo-secure-store@~58.0.2
 //   expo-status-bar@~58.0.4
+//   react-native-tcp-socket@^6.4.3
 
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
@@ -85,9 +86,9 @@ function parseVariables(body) {
     attributes: parseAttributes(item.attributes)
   }));
 }
-function parseAttributes(raw) {
-  if (typeof raw !== "object" || raw === null) return void 0;
-  const a = raw;
+function parseAttributes(raw2) {
+  if (typeof raw2 !== "object" || raw2 === null) return void 0;
+  const a = raw2;
   const pick = (key) => a[key] === void 0 || a[key] === null ? void 0 : stringify(a[key]);
   return {
     formatId: pick("formatId"),
@@ -574,11 +575,300 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 75) {
 })(); true;`;
 }
 
+// src/modbus/modbusClient.ts
+var ModbusError = class extends Error {
+  constructor(message, kind, exceptionCode) {
+    super(message);
+    __publicField(this, "kind", kind);
+    __publicField(this, "exceptionCode", exceptionCode);
+    this.name = "ModbusError";
+  }
+};
+var READ_HOLDING = 3;
+var WRITE_SINGLE = 6;
+var MAX_READ = 120;
+var ModbusTcpClient = class {
+  constructor(factory, host, port = 502, unit = 1, timeoutMs = 4e3) {
+    __publicField(this, "factory", factory);
+    __publicField(this, "host", host);
+    __publicField(this, "port", port);
+    __publicField(this, "unit", unit);
+    __publicField(this, "timeoutMs", timeoutMs);
+    __publicField(this, "socket", null);
+    __publicField(this, "connecting", null);
+    __publicField(this, "buffer", new Uint8Array(0));
+    __publicField(this, "pending", null);
+    __publicField(this, "transaction", 0);
+    /** Anfragen laufen nacheinander – der Regler mag keine parallelen Anfragen auf einer Verbindung. */
+    __publicField(this, "queue", Promise.resolve());
+  }
+  readHolding(address, count) {
+    if (count < 1 || count > 125) throw new RangeError(`Ung\xFCltige Anzahl ${count}`);
+    return this.enqueue(async () => {
+      const pdu = await this.request([READ_HOLDING, address >> 8, address & 255, count >> 8, count & 255]);
+      const byteCount = pdu[1];
+      const values = [];
+      for (let i = 0; i < byteCount / 2; i++) values.push(pdu[2 + 2 * i] << 8 | pdu[3 + 2 * i]);
+      return values;
+    });
+  }
+  writeSingle(address, value) {
+    const v = value & 65535;
+    return this.enqueue(async () => {
+      await this.request([WRITE_SINGLE, address >> 8, address & 255, v >> 8, v & 255]);
+    });
+  }
+  close() {
+    this.failPending(new ModbusError("Verbindung geschlossen", "connection"));
+    this.socket?.destroy();
+    this.socket = null;
+    this.connecting = null;
+  }
+  // MARK: Intern
+  enqueue(job) {
+    const run = this.queue.then(job, job);
+    this.queue = run.catch(() => void 0);
+    return run;
+  }
+  connect() {
+    if (this.socket && !this.connecting) return Promise.resolve();
+    if (this.connecting) return this.connecting;
+    this.buffer = new Uint8Array(0);
+    this.connecting = new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        this.close();
+        reject(new ModbusError(`Keine Antwort von ${this.host}:${this.port}`, "timeout"));
+      }, this.timeoutMs);
+      const socket = this.factory(this.host, this.port, () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        this.connecting = null;
+        resolve();
+      });
+      this.socket = socket;
+      socket.on("data", (data) => this.onData(data));
+      socket.on("error", (error) => {
+        const wrapped = new ModbusError(`Verbindung zu ${this.host}:${this.port} fehlgeschlagen: ${error.message}`, "connection");
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          reject(wrapped);
+        }
+        this.dropSocket(socket, wrapped);
+      });
+      socket.on("close", () => this.dropSocket(socket, new ModbusError("Verbindung vom Regler geschlossen", "connection")));
+    });
+    return this.connecting;
+  }
+  dropSocket(socket, error) {
+    if (this.socket !== socket) return;
+    this.socket = null;
+    this.connecting = null;
+    this.failPending(error);
+  }
+  async request(pdu) {
+    await this.connect();
+    const socket = this.socket;
+    if (!socket) throw new ModbusError("Keine Verbindung", "connection");
+    this.transaction = this.transaction + 1 & 65535;
+    const tid = this.transaction;
+    const length = pdu.length + 1;
+    const frame = new Uint8Array([tid >> 8, tid & 255, 0, 0, length >> 8, length & 255, this.unit, ...pdu]);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending = null;
+        this.close();
+        reject(new ModbusError("Der Regler antwortet nicht (Zeit\xFCberschreitung)", "timeout"));
+      }, this.timeoutMs);
+      this.pending = {
+        transaction: tid,
+        timer,
+        reject,
+        resolve: (response) => {
+          if (response[0] & 128) {
+            reject(new ModbusError(`Regler meldet Modbus-Ausnahme ${response[1]}`, "exception", response[1]));
+          } else {
+            resolve(response);
+          }
+        }
+      };
+      socket.write(frame);
+    });
+  }
+  onData(data) {
+    const chunk = typeof data === "string" ? latin1Bytes(data) : data;
+    const merged = new Uint8Array(this.buffer.length + chunk.length);
+    merged.set(this.buffer);
+    merged.set(chunk, this.buffer.length);
+    this.buffer = merged;
+    while (this.buffer.length >= 7) {
+      const length = this.buffer[4] << 8 | this.buffer[5];
+      if (this.buffer.length < 6 + length) return;
+      const tid = this.buffer[0] << 8 | this.buffer[1];
+      const pdu = this.buffer.slice(7, 6 + length);
+      this.buffer = this.buffer.slice(6 + length);
+      const pending = this.pending;
+      if (pending && pending.transaction === tid) {
+        this.pending = null;
+        clearTimeout(pending.timer);
+        pending.resolve(pdu);
+      }
+    }
+  }
+  failPending(error) {
+    const pending = this.pending;
+    if (!pending) return;
+    this.pending = null;
+    clearTimeout(pending.timer);
+    pending.reject(error);
+  }
+};
+function latin1Bytes(text) {
+  const out = new Uint8Array(text.length);
+  for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 255;
+  return out;
+}
+var toSigned16 = (v) => v >= 32768 ? v - 65536 : v;
+
+// src/modbus/modbusTransport.ts
+var temperature = (address, writable) => ({
+  address,
+  scale: 0.1,
+  writable
+});
+var raw = (address) => ({ address, scale: 1 });
+function buildRegisterMap(circuitCount) {
+  const map = /* @__PURE__ */ new Map();
+  const HC = KebaVar.heatCircuit;
+  for (let i = 0; i < circuitCount; i++) {
+    const base = 50 * i;
+    map.set(HC.setValue(i), temperature(base + 2));
+    map.set(HC.normalSetTemperature(i), temperature(base + 4, { min: 10, max: 30 }));
+    map.set(HC.reducedSetTemperature(i), temperature(base + 5, { min: 10, max: 30 }));
+    map.set(HC.operatingMode(i), raw(base + 7));
+    map.set(HC.heatRequest(i), raw(base + 8));
+  }
+  const HW = KebaVar.hotWaterTank;
+  map.set(HW.temperature(0), temperature(401));
+  map.set(HW.setTemperature(0), temperature(402, { min: 30, max: 60 }));
+  map.set(HW.operatingMode(0), raw(403));
+  return map;
+}
+function groupAddresses(addresses, maxGap = 16, maxCount = MAX_READ) {
+  const sorted = [...new Set(addresses)].sort((a, b) => a - b);
+  const blocks = [];
+  for (const address of sorted) {
+    const last = blocks[blocks.length - 1];
+    if (last && address - (last.start + last.count - 1) <= maxGap && address - last.start < maxCount) {
+      last.count = address - last.start + 1;
+    } else {
+      blocks.push({ start: address, count: 1 });
+    }
+  }
+  return blocks;
+}
+function formatValue(value) {
+  return String(Math.round(value * 100) / 100);
+}
+var ModbusTransport = class {
+  constructor(client, layout) {
+    __publicField(this, "client", client);
+    __publicField(this, "map");
+    __publicField(this, "statics");
+    const circuits = layout.circuitNames.length;
+    this.map = buildRegisterMap(circuits);
+    this.statics = new Map([
+      [KebaVar.numberOfHeatingCircuits, String(circuits)],
+      [KebaVar.numberOfHotWaterTanks, "1"],
+      [KebaVar.hotWaterTank.name(0), layout.hotWaterName ?? "Warmwasser"],
+      // Kein Raumfühler/Feuchtefühler über Modbus bekannt → nicht anzeigen.
+      ...layout.circuitNames.flatMap((name, i) => [
+        [KebaVar.heatCircuit.name(i), name],
+        [KebaVar.heatCircuit.hasRoomTemperature(i), "false"],
+        [KebaVar.heatCircuit.hasRoomHumidity(i), "false"]
+      ])
+    ]);
+  }
+  async read(names, withAttributes = false) {
+    const result = {};
+    for (const name of names) {
+      const value = this.statics.get(name);
+      if (value !== void 0) result[name] = { name, value };
+    }
+    const wanted = names.filter((n) => this.map.has(n));
+    const registers = /* @__PURE__ */ new Map();
+    try {
+      for (const block of groupAddresses(wanted.map((n) => this.map.get(n).address))) {
+        const values = await this.client.readHolding(block.start, block.count);
+        values.forEach((v, i) => registers.set(block.start + i, v));
+      }
+    } catch (error) {
+      throw toKebaError(error);
+    }
+    for (const name of wanted) {
+      const mapping = this.map.get(name);
+      const rawValue = registers.get(mapping.address);
+      if (rawValue === void 0) continue;
+      result[name] = {
+        name,
+        value: formatValue(toSigned16(rawValue) * mapping.scale),
+        attributes: withAttributes && mapping.writable ? { lowerLimit: String(mapping.writable.min), upperLimit: String(mapping.writable.max) } : void 0
+      };
+    }
+    return result;
+  }
+  async write(values) {
+    for (const { name, value } of values) {
+      const mapping = this.map.get(name);
+      if (!mapping?.writable) {
+        throw new KebaError("server", "Diese Einstellung ist \xFCber Modbus noch nicht freigeschaltet.");
+      }
+      const number = Number(value);
+      if (!Number.isFinite(number) || number < mapping.writable.min || number > mapping.writable.max) {
+        throw new KebaError("server", `Wert ${value} liegt au\xDFerhalb von ${mapping.writable.min}\u2013${mapping.writable.max}.`);
+      }
+      try {
+        await this.client.writeSingle(mapping.address, Math.round(number / mapping.scale));
+      } catch (error) {
+        throw toKebaError(error);
+      }
+    }
+  }
+  /** Ob ein Wert (z. B. die Betriebsart) über diese Verbindung geändert werden kann. */
+  canWrite(name) {
+    return this.map.get(name)?.writable !== void 0;
+  }
+};
+function toKebaError(error) {
+  if (error instanceof KebaError) return error;
+  if (error instanceof ModbusError && error.kind === "exception") {
+    return new KebaError("server", `Der Regler lehnt die Anfrage ab (Modbus-Ausnahme ${error.exceptionCode}).`);
+  }
+  return new KebaError("network", "W\xE4rmepumpe nicht erreichbar. Bist du im WLAN zuhause (oder per VPN verbunden)?");
+}
+
+// src/modbus/nativeSocket.ts
+import { NativeModules } from "react-native";
+function isModbusAvailable() {
+  return NativeModules.TcpSockets != null;
+}
+async function loadSocketFactory() {
+  if (!isModbusAvailable()) return void 0;
+  const { default: TcpSocket } = await import("react-native-tcp-socket");
+  return (host, port, onConnect) => TcpSocket.createConnection({ host, port, connectTimeout: 4e3 }, onConnect);
+}
+
 // src/settings.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 var defaultSettings = {
-  mode: "remote",
+  mode: "modbus",
+  modbusAddress: "192.168.0.100",
+  circuitNames: "Puffer FBH, Heizk\xF6rper",
   portalUsername: "",
   portalPassword: "",
   portalDevice: "WebHmi",
@@ -586,13 +876,27 @@ var defaultSettings = {
   username: "",
   password: ""
 };
+function circuitNameList(s) {
+  const names = s.circuitNames.split(",").map((n) => n.trim()).filter(Boolean).slice(0, 8);
+  return names.length > 0 ? names : ["Heizkreis 1"];
+}
 var hasPortalCredentials = (s) => s.portalUsername.trim() !== "" && s.portalPassword !== "";
+function isConfigured(s) {
+  switch (s.mode) {
+    case "modbus":
+      return s.modbusAddress.trim() !== "";
+    case "remote":
+      return hasPortalCredentials(s);
+    case "local":
+      return s.localAddress.trim() !== "";
+  }
+}
 var KEY = "heizung.settings";
 var SECRET_KEYS = { password: "heizung.password", portalPassword: "heizung.portalPassword" };
 async function loadSettings() {
   try {
-    const raw = await AsyncStorage.getItem(KEY);
-    const stored = raw ? JSON.parse(raw) : {};
+    const raw2 = await AsyncStorage.getItem(KEY);
+    const stored = raw2 ? JSON.parse(raw2) : {};
     const password = await SecureStore.getItemAsync(SECRET_KEYS.password) ?? "";
     const portalPassword = await SecureStore.getItemAsync(SECRET_KEYS.portalPassword) ?? "";
     return { ...defaultSettings, ...stored, password, portalPassword };
@@ -625,6 +929,7 @@ var AUTO_RECONNECT_INTERVAL_MS = 6e4;
 function HeatingProvider({ children }) {
   const bridge = useRef(new WebViewBridge()).current;
   const client = useRef(null);
+  const modbusClient = useRef(null);
   const refreshing = useRef(false);
   const settingsRef = useRef(null);
   const lastAutoConnect = useRef(0);
@@ -636,6 +941,7 @@ function HeatingProvider({ children }) {
   const [loginNotice, setLoginNotice] = useState();
   const [transientError, setTransientError] = useState();
   const [writing, setWriting] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [remoteStage, setRemoteStage] = useState("idle");
   const [remoteSession, setRemoteSession] = useState(0);
   const [portalScript, setPortalScript] = useState();
@@ -700,13 +1006,22 @@ function HeatingProvider({ children }) {
       const next = await loadSnapshot(client.current);
       snapshotRef.current = next;
       setSnapshot(next);
+      setOffline(false);
       setPhase("ready");
     } catch (e) {
+      if (e instanceof KebaError && e.kind === "network" && snapshotRef.current) {
+        setOffline(true);
+        return;
+      }
       handleError(e);
     } finally {
       refreshing.current = false;
     }
   }, [handleError]);
+  const closeModbus = useCallback(() => {
+    modbusClient.current?.close();
+    modbusClient.current = null;
+  }, []);
   const start = useCallback(
     async (next) => {
       client.current = next;
@@ -725,8 +1040,29 @@ function HeatingProvider({ children }) {
       snapshotRef.current = void 0;
       setSnapshot(void 0);
       setError(void 0);
+      closeModbus();
       if (settings.mode === "remote") {
         startRemote(settings);
+        return;
+      }
+      if (settings.mode === "modbus") {
+        setRemoteStage("idle");
+        bridge.reset();
+        const host = settings.modbusAddress.trim().replace(/^[a-z]+:\/\//i, "").replace(/[:/].*$/, "");
+        if (!host) {
+          fail("Bitte die IP-Adresse der W\xE4rmepumpe eintragen (z. B. 192.168.0.100).");
+          return;
+        }
+        const factory = isModbusAvailable() ? await loadSocketFactory() : void 0;
+        if (!factory) {
+          fail(
+            "Modbus braucht die eigene App-Version \u2013 in Expo Go/Snack gibt es keine TCP-Verbindungen. Zum Testen in Snack in den Einstellungen \u201EFernzugriff\u201C w\xE4hlen."
+          );
+          return;
+        }
+        const mb = new ModbusTcpClient(factory, host, 502, 1);
+        modbusClient.current = mb;
+        await start(new ModbusTransport(mb, { circuitNames: circuitNameList(settings) }));
         return;
       }
       const url = normalizeLocalAddress(settings.localAddress);
@@ -739,7 +1075,7 @@ function HeatingProvider({ children }) {
       const auth = settings.username ? { username: settings.username, password: settings.password } : void 0;
       await start(new KebaClient(directPost(url, auth)));
     },
-    [bridge, fail, start, startRemote]
+    [bridge, closeModbus, fail, start, startRemote]
   );
   const cancelRemoteLogin = useCallback(() => {
     setRemoteStage("idle");
@@ -800,13 +1136,18 @@ function HeatingProvider({ children }) {
   );
   const disconnect = useCallback(() => {
     bridge.reset();
+    closeModbus();
     client.current = null;
     settingsRef.current = null;
     snapshotRef.current = void 0;
     setSnapshot(void 0);
     setRemoteStage("idle");
     setPhase("notConnected");
-  }, [bridge]);
+  }, [bridge, closeModbus]);
+  const canWrite = useCallback((name) => {
+    const transport = client.current;
+    return transport instanceof ModbusTransport ? transport.canWrite(name) : true;
+  }, []);
   const clearTransientError = useCallback(() => setTransientError(void 0), []);
   const value = useMemo(
     () => ({
@@ -818,10 +1159,12 @@ function HeatingProvider({ children }) {
       diagnostics,
       transientError,
       writing,
+      offline,
       remoteStage,
       remoteSession,
       portalScript,
       bridge,
+      canWrite,
       connect,
       cancelRemoteLogin,
       onHmiReached,
@@ -843,10 +1186,12 @@ function HeatingProvider({ children }) {
       diagnostics,
       transientError,
       writing,
+      offline,
       remoteStage,
       remoteSession,
       portalScript,
       bridge,
+      canWrite,
       connect,
       cancelRemoteLogin,
       onHmiReached,
@@ -1081,8 +1426,10 @@ var styles = StyleSheet.create({
 });
 
 // src/screens/DetailScreens.tsx
+var MODE_LOCKED_NOTE = "Die Betriebsart wird \xFCber Modbus angezeigt, das Umstellen ist hier noch nicht freigeschaltet (bitte am Display).";
 function HeatCircuitScreen({ index }) {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.heatCircuit.operatingMode(index));
   const theme = useTheme();
   const circuit = snapshot?.heatCircuits.find((c) => c.index === index);
   if (!circuit) return null;
@@ -1103,9 +1450,10 @@ function HeatCircuitScreen({ index }) {
       <OptionList
     options={modes}
     selected={circuit.operatingMode}
-    disabled={writing}
+    disabled={writing || !modeWritable}
     onSelect={(mode) => perform((c) => commands.setHeatCircuitMode(c, index, mode))}
   />
+      {!modeWritable && <Text2 style={[styles2.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text2>}
 
       <SectionTitle>Temperaturen</SectionTitle>
       <Card style={styles2.listCard}>
@@ -1139,7 +1487,8 @@ function HeatCircuitScreen({ index }) {
     </ScrollView>;
 }
 function HotWaterScreen({ index }) {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.hotWaterTank.operatingMode(index));
   const theme = useTheme();
   const tank = snapshot?.hotWaterTanks.find((t) => t.index === index);
   if (!tank) return null;
@@ -1154,9 +1503,10 @@ function HotWaterScreen({ index }) {
       <OptionList
     options={HotWaterModes.filter((m) => selectableHotWaterModes.includes(m.value))}
     selected={tank.operatingMode}
-    disabled={writing}
+    disabled={writing || !modeWritable}
     onSelect={(mode) => perform((c) => commands.setHotWaterMode(c, index, mode))}
   />
+      {!modeWritable && <Text2 style={[styles2.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text2>}
 
       {tank.setTemperature && <>
           <SectionTitle>Temperatur</SectionTitle>
@@ -1182,7 +1532,7 @@ var styles2 = StyleSheet2.create({
 import { useEffect, useState as useState3 } from "react";
 import { Modal, Pressable as Pressable2, RefreshControl, ScrollView as ScrollView2, StyleSheet as StyleSheet3, Text as Text3, View as View2 } from "react-native";
 function Dashboard({ navigate }) {
-  const { snapshot, refresh, writing } = useHeating();
+  const { snapshot, refresh, writing, offline } = useHeating();
   const theme = useTheme();
   const [pulling, setPulling] = useState3(false);
   useEffect(() => {
@@ -1207,7 +1557,7 @@ function Dashboard({ navigate }) {
       {snapshot.heatCircuits.map((circuit) => <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => navigate({ name: "circuit", index: circuit.index })} />)}
       {snapshot.hotWaterTanks.map((tank) => <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: "hotWater", index: tank.index })} />)}
       <Text3 style={[styles3.footer, { color: theme.secondary }]}>
-        {writing ? "Wird gespeichert \u2026" : `Stand: ${snapshot.fetchedAt.toLocaleTimeString("de-DE")}`}
+        {writing ? "Wird gespeichert \u2026" : `${offline ? "Keine Verbindung \u2013 letzter Stand" : "Stand"}: ${snapshot.fetchedAt.toLocaleTimeString("de-DE")}`}
       </Text3>
     </ScrollView2>;
 }
@@ -1221,12 +1571,15 @@ function SystemCard() {
         <Text3 style={[styles3.caption, { color: theme.secondary }]}>Außen</Text3>
         <Text3 style={[styles3.mediumTemp, { color: theme.text }]}>{formatTemp(snapshot.outdoorTemperature)}</Text3>
       </View2>
-      <Pressable2 onPress={() => setPicking(true)} disabled={writing} style={styles3.systemMode} hitSlop={8}>
-        <Text3 style={[styles3.caption, { color: theme.secondary }]}>Anlage</Text3>
-        <Text3 style={[styles3.systemModeText, { color: theme.accent }]}>
-          {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
-        </Text3>
-      </Pressable2>
+      {
+    /* Über Modbus ist die Anlagen-Betriebsart (noch) nicht bekannt → Auswahl ausblenden. */
+  }
+      {snapshot.systemOperatingMode !== void 0 && <Pressable2 onPress={() => setPicking(true)} disabled={writing} style={styles3.systemMode} hitSlop={8}>
+          <Text3 style={[styles3.caption, { color: theme.secondary }]}>Anlage</Text3>
+          <Text3 style={[styles3.systemModeText, { color: theme.accent }]}>
+            {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
+          </Text3>
+        </Pressable2>}
 
       <Modal visible={picking} transparent animationType="fade" onRequestClose={() => setPicking(false)}>
         <Pressable2 style={styles3.backdrop} onPress={() => setPicking(false)}>
@@ -1249,12 +1602,15 @@ function HeatCircuitCard({ circuit, onPress }) {
   const { perform, writing } = useHeating();
   const theme = useTheme();
   const offset = circuit.offset;
+  const target = offset ?? circuit.normalSetTemperature;
   const step = (delta) => {
-    if (!offset) return;
-    let next = offset.value + delta;
-    if (offset.range) next = Math.min(offset.range.max, Math.max(offset.range.min, next));
-    if (next === offset.value) return;
-    void perform((c) => commands.setOffset(c, circuit.index, next));
+    if (!target) return;
+    let next = target.value + delta;
+    if (target.range) next = Math.min(target.range.max, Math.max(target.range.min, next));
+    if (next === target.value) return;
+    void perform(
+      (c) => offset ? commands.setOffset(c, circuit.index, next) : commands.setNormalTemperature(c, circuit.index, next)
+    );
   };
   return <Card onPress={onPress}>
       <View2 style={styles3.cardHeader}>
@@ -1272,7 +1628,7 @@ function HeatCircuitCard({ circuit, onPress }) {
           {offset && offset.value !== 0 && <Text3 style={[styles3.caption, { color: theme.secondary }]}>Korrektur {formatSigned(offset.value)}</Text3>}
           {circuit.roomTemperature !== void 0 && <Text3 style={[styles3.subline, { color: theme.secondary }]}>Raum {formatTemp(circuit.roomTemperature)}</Text3>}
         </View2>
-        {offset && <View2 style={styles3.steps}>
+        {target && <View2 style={styles3.steps}>
             <StepButton large label="▲" onPress={() => step(0.5)} disabled={writing} />
             <StepButton large label="▼" onPress={() => step(-0.5)} disabled={writing} />
           </View2>}
@@ -1465,8 +1821,8 @@ async function probeController(url, timeoutMs = 2e3) {
     const values = await new KebaClient(directPost(url, void 0, timeoutMs)).read([KebaVar.outdoorTemperature]);
     const variable = values[KebaVar.outdoorTemperature];
     if (!variable) return void 0;
-    const temperature = Number(variable.value);
-    return { url, outdoorTemperature: Number.isFinite(temperature) ? temperature : void 0 };
+    const temperature2 = Number(variable.value);
+    return { url, outdoorTemperature: Number.isFinite(temperature2) ? temperature2 : void 0 };
   } catch {
     return void 0;
   }
@@ -1507,7 +1863,7 @@ function SettingsScreen({
     onDone();
     await connect(draft);
   };
-  const canConnect = draft.mode === "remote" ? true : normalizeLocalAddress(draft.localAddress) !== void 0;
+  const canConnect = draft.mode === "remote" ? true : draft.mode === "modbus" ? draft.modbusAddress.trim() !== "" : normalizeLocalAddress(draft.localAddress) !== void 0;
   return <ScrollView3
     style={{ backgroundColor: theme.background }}
     contentContainerStyle={styles5.content}
@@ -1515,18 +1871,43 @@ function SettingsScreen({
   >
       <SectionTitle>Verbindung</SectionTitle>
       <View4 style={[styles5.segment, { backgroundColor: theme.pressed }]}>
-        {["remote", "local"].map((mode) => <Pressable3
+        {["modbus", "remote", "local"].map((mode) => <Pressable3
     key={mode}
     onPress={() => update({ mode })}
     style={[styles5.segmentItem, draft.mode === mode && { backgroundColor: theme.card }]}
   >
             <Text5 style={[styles5.segmentText, { color: theme.text }]}>
-              {mode === "remote" ? "KEBA Fernzugriff" : "Heimnetz / VPN"}
+              {MODE_LABELS[mode]}
             </Text5>
           </Pressable3>)}
       </View4>
 
-      {draft.mode === "remote" ? <>
+      {draft.mode === "modbus" ? <>
+          <SectionTitle>Wärmepumpe im Heimnetz (Modbus)</SectionTitle>
+          <Card style={styles5.form}>
+            <Field
+    value={draft.modbusAddress}
+    onChangeText={(modbusAddress) => update({ modbusAddress })}
+    placeholder="IP-Adresse, z. B. 192.168.0.100"
+    keyboardType="numbers-and-punctuation"
+  />
+            <Field
+    value={draft.circuitNames}
+    onChangeText={(circuitNames) => update({ circuitNames })}
+    placeholder="Heizkreise, z. B. Puffer FBH, Heizkörper"
+    last
+  />
+          </Card>
+          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+            Direkt mit der Wärmepumpe – ohne Website, ohne Passwort. Die IP-Adresse steht am Display unter
+            Netzwerk → LAN. Die Namen der Heizkreise (kommagetrennt, in der Reihenfolge am Display) legen fest,
+            wie viele Heizkreise angezeigt werden. Funktioniert im WLAN zuhause oder per VPN.
+          </Text5>
+          {!isModbusAvailable() && <Text5 style={[styles5.footnote, { color: theme.danger }]}>
+              In Expo Go/Snack gibt es keine direkten Netzwerkverbindungen. Modbus funktioniert erst in der
+              eigenen App-Version (EAS Build). Zum Testen in Snack „Fernzugriff“ wählen.
+            </Text5>}
+        </> : draft.mode === "remote" ? <>
           <SectionTitle>Zugang remote.keba.com</SectionTitle>
           <Card style={styles5.form}>
             <Field
@@ -1637,6 +2018,11 @@ function ControllerSearch({ address, onSelect }) {
         </Card>)}
     </View4>;
 }
+var MODE_LABELS = {
+  modbus: "Modbus",
+  remote: "Fernzugriff",
+  local: "Web-HMI"
+};
 function Field({ last, ...props }) {
   const theme = useTheme();
   return <TextInput
@@ -1684,8 +2070,7 @@ function Main() {
   useEffect3(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
-      const ready = loaded.mode === "remote" ? hasPortalCredentials(loaded) : loaded.localAddress !== "";
-      if (ready) void heating.connect(loaded);
+      if (isConfigured(loaded)) void heating.connect(loaded);
     });
   }, []);
   useEffect3(() => {
@@ -1719,8 +2104,7 @@ function Main() {
     }
   }, [heating.phase, route.name, stack.length]);
   const connect = () => {
-    const ready = settings.mode === "remote" ? hasPortalCredentials(settings) : settings.localAddress !== "";
-    if (ready) void heating.connect(settings);
+    if (isConfigured(settings)) void heating.connect(settings);
     else navigate({ name: "settings" });
   };
   const title = (() => {
@@ -1786,7 +2170,7 @@ function Home({ connect, navigate }) {
     case "notConnected":
       return <StatusView
         title="Nicht verbunden"
-        message="Trage einmal deinen Zugang zu remote.keba.com ein. Danach verbindet sich die App bei jedem Start von selbst."
+        message="Richte einmal die Verbindung ein. Danach verbindet sich die App bei jedem Start von selbst."
       >
           <Button title="Einrichten" onPress={() => navigate({ name: "settings" })} />
         </StatusView>;

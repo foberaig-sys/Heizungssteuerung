@@ -4,6 +4,7 @@ import { commands } from '../keba/service';
 import {
   HeatCircuitModes,
   HotWaterModes,
+  KebaVar,
   modeLabel,
   selectableHeatCircuitModes,
   selectableHotWaterModes,
@@ -12,8 +13,12 @@ import { useHeating } from '../store';
 import { Card, OptionList, Row, SectionTitle, SetpointEditor } from '../ui/components';
 import { formatTemp, useTheme } from '../ui/theme';
 
+const MODE_LOCKED_NOTE =
+  'Die Betriebsart wird über Modbus angezeigt, das Umstellen ist hier noch nicht freigeschaltet (bitte am Display).';
+
 export function HeatCircuitScreen({ index }: { index: number }) {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.heatCircuit.operatingMode(index));
   const theme = useTheme();
   const circuit = snapshot?.heatCircuits.find((c) => c.index === index);
   if (!circuit) return null;
@@ -38,9 +43,10 @@ export function HeatCircuitScreen({ index }: { index: number }) {
       <OptionList
         options={modes}
         selected={circuit.operatingMode}
-        disabled={writing}
+        disabled={writing || !modeWritable}
         onSelect={(mode) => perform((c) => commands.setHeatCircuitMode(c, index, mode))}
       />
+      {!modeWritable && <Text style={[styles.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text>}
 
       <SectionTitle>Temperaturen</SectionTitle>
       <Card style={styles.listCard}>
@@ -82,7 +88,8 @@ export function HeatCircuitScreen({ index }: { index: number }) {
 }
 
 export function HotWaterScreen({ index }: { index: number }) {
-  const { snapshot, perform, writing } = useHeating();
+  const { snapshot, perform, writing, canWrite } = useHeating();
+  const modeWritable = canWrite(KebaVar.hotWaterTank.operatingMode(index));
   const theme = useTheme();
   const tank = snapshot?.hotWaterTanks.find((t) => t.index === index);
   if (!tank) return null;
@@ -99,9 +106,10 @@ export function HotWaterScreen({ index }: { index: number }) {
       <OptionList
         options={HotWaterModes.filter((m) => selectableHotWaterModes.includes(m.value))}
         selected={tank.operatingMode}
-        disabled={writing}
+        disabled={writing || !modeWritable}
         onSelect={(mode) => perform((c) => commands.setHotWaterMode(c, index, mode))}
       />
+      {!modeWritable && <Text style={[styles.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text>}
 
       {tank.setTemperature && (
         <>

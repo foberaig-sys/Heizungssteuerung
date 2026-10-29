@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
 import { normalizeLocalAddress } from '../keba/client';
+import { isModbusAvailable } from '../modbus/nativeSocket';
 import { FoundController, scanForControllers, subnetPrefix } from '../keba/discovery';
 import { ConnectionMode, Settings, hasPortalCredentials, saveSettings } from '../settings';
 import { useHeating } from '../store';
@@ -29,7 +30,12 @@ export function SettingsScreen({
     await connect(draft);
   };
 
-  const canConnect = draft.mode === 'remote' ? true : normalizeLocalAddress(draft.localAddress) !== undefined;
+  const canConnect =
+    draft.mode === 'remote'
+      ? true
+      : draft.mode === 'modbus'
+        ? draft.modbusAddress.trim() !== ''
+        : normalizeLocalAddress(draft.localAddress) !== undefined;
 
   return (
     <ScrollView
@@ -39,20 +45,49 @@ export function SettingsScreen({
     >
       <SectionTitle>Verbindung</SectionTitle>
       <View style={[styles.segment, { backgroundColor: theme.pressed }]}>
-        {(['remote', 'local'] as ConnectionMode[]).map((mode) => (
+        {(['modbus', 'remote', 'local'] as ConnectionMode[]).map((mode) => (
           <Pressable
             key={mode}
             onPress={() => update({ mode })}
             style={[styles.segmentItem, draft.mode === mode && { backgroundColor: theme.card }]}
           >
             <Text style={[styles.segmentText, { color: theme.text }]}>
-              {mode === 'remote' ? 'KEBA Fernzugriff' : 'Heimnetz / VPN'}
+              {MODE_LABELS[mode]}
             </Text>
           </Pressable>
         ))}
       </View>
 
-      {draft.mode === 'remote' ? (
+      {draft.mode === 'modbus' ? (
+        <>
+          <SectionTitle>Wärmepumpe im Heimnetz (Modbus)</SectionTitle>
+          <Card style={styles.form}>
+            <Field
+              value={draft.modbusAddress}
+              onChangeText={(modbusAddress) => update({ modbusAddress })}
+              placeholder="IP-Adresse, z. B. 192.168.0.100"
+              keyboardType="numbers-and-punctuation"
+            />
+            <Field
+              value={draft.circuitNames}
+              onChangeText={(circuitNames) => update({ circuitNames })}
+              placeholder="Heizkreise, z. B. Puffer FBH, Heizkörper"
+              last
+            />
+          </Card>
+          <Text style={[styles.footnote, { color: theme.secondary }]}>
+            Direkt mit der Wärmepumpe – ohne Website, ohne Passwort. Die IP-Adresse steht am Display unter
+            Netzwerk → LAN. Die Namen der Heizkreise (kommagetrennt, in der Reihenfolge am Display) legen fest,
+            wie viele Heizkreise angezeigt werden. Funktioniert im WLAN zuhause oder per VPN.
+          </Text>
+          {!isModbusAvailable() && (
+            <Text style={[styles.footnote, { color: theme.danger }]}>
+              In Expo Go/Snack gibt es keine direkten Netzwerkverbindungen. Modbus funktioniert erst in der
+              eigenen App-Version (EAS Build). Zum Testen in Snack „Fernzugriff“ wählen.
+            </Text>
+          )}
+        </>
+      ) : draft.mode === 'remote' ? (
         <>
           <SectionTitle>Zugang remote.keba.com</SectionTitle>
           <Card style={styles.form}>
@@ -185,6 +220,12 @@ function ControllerSearch({ address, onSelect }: { address: string; onSelect: (u
     </View>
   );
 }
+
+const MODE_LABELS: Record<ConnectionMode, string> = {
+  modbus: 'Modbus',
+  remote: 'Fernzugriff',
+  local: 'Web-HMI',
+};
 
 function Field({ last, ...props }: TextInputProps & { last?: boolean }) {
   const theme = useTheme();

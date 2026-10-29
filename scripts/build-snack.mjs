@@ -11,6 +11,7 @@ const external = [
   '@react-native-async-storage/async-storage',
   'expo-secure-store',
   'expo-status-bar',
+  'react-native-tcp-socket',
 ];
 
 const result = await build({

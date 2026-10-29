@@ -10,7 +10,7 @@ import { formatSigned, formatTemp, useTheme } from '../ui/theme';
 import type { Route } from './routes';
 
 export function Dashboard({ navigate }: { navigate: (route: Route) => void }) {
-  const { snapshot, refresh, writing } = useHeating();
+  const { snapshot, refresh, writing, offline } = useHeating();
   const theme = useTheme();
   const [pulling, setPulling] = useState(false);
 
@@ -46,7 +46,9 @@ export function Dashboard({ navigate }: { navigate: (route: Route) => void }) {
         <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: 'hotWater', index: tank.index })} />
       ))}
       <Text style={[styles.footer, { color: theme.secondary }]}>
-        {writing ? 'Wird gespeichert …' : `Stand: ${snapshot.fetchedAt.toLocaleTimeString('de-DE')}`}
+        {writing
+          ? 'Wird gespeichert …'
+          : `${offline ? 'Keine Verbindung – letzter Stand' : 'Stand'}: ${snapshot.fetchedAt.toLocaleTimeString('de-DE')}`}
       </Text>
     </ScrollView>
   );
@@ -64,12 +66,15 @@ function SystemCard() {
         <Text style={[styles.caption, { color: theme.secondary }]}>Außen</Text>
         <Text style={[styles.mediumTemp, { color: theme.text }]}>{formatTemp(snapshot.outdoorTemperature)}</Text>
       </View>
-      <Pressable onPress={() => setPicking(true)} disabled={writing} style={styles.systemMode} hitSlop={8}>
-        <Text style={[styles.caption, { color: theme.secondary }]}>Anlage</Text>
-        <Text style={[styles.systemModeText, { color: theme.accent }]}>
-          {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
-        </Text>
-      </Pressable>
+      {/* Über Modbus ist die Anlagen-Betriebsart (noch) nicht bekannt → Auswahl ausblenden. */}
+      {snapshot.systemOperatingMode !== undefined && (
+        <Pressable onPress={() => setPicking(true)} disabled={writing} style={styles.systemMode} hitSlop={8}>
+          <Text style={[styles.caption, { color: theme.secondary }]}>Anlage</Text>
+          <Text style={[styles.systemModeText, { color: theme.accent }]}>
+            {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
+          </Text>
+        </Pressable>
+      )}
 
       <Modal visible={picking} transparent animationType="fade" onRequestClose={() => setPicking(false)}>
         <Pressable style={styles.backdrop} onPress={() => setPicking(false)}>
@@ -94,13 +99,19 @@ function HeatCircuitCard({ circuit, onPress }: { circuit: HeatCircuitStatus; onP
   const { perform, writing } = useHeating();
   const theme = useTheme();
   const offset = circuit.offset;
+  // Pfeiltasten: wie an der HMI die Korrektur – über Modbus ist die nicht bekannt, dann die Komforttemperatur.
+  const target = offset ?? circuit.normalSetTemperature;
 
   const step = (delta: number) => {
-    if (!offset) return;
-    let next = offset.value + delta;
-    if (offset.range) next = Math.min(offset.range.max, Math.max(offset.range.min, next));
-    if (next === offset.value) return;
-    void perform((c) => commands.setOffset(c, circuit.index, next));
+    if (!target) return;
+    let next = target.value + delta;
+    if (target.range) next = Math.min(target.range.max, Math.max(target.range.min, next));
+    if (next === target.value) return;
+    void perform((c) =>
+      offset
+        ? commands.setOffset(c, circuit.index, next)
+        : commands.setNormalTemperature(c, circuit.index, next),
+    );
   };
 
   return (
@@ -124,7 +135,7 @@ function HeatCircuitCard({ circuit, onPress }: { circuit: HeatCircuitStatus; onP
             <Text style={[styles.subline, { color: theme.secondary }]}>Raum {formatTemp(circuit.roomTemperature)}</Text>
           )}
         </View>
-        {offset && (
+        {target && (
           <View style={styles.steps}>
             <StepButton large label="▲" onPress={() => step(0.5)} disabled={writing} />
             <StepButton large label="▼" onPress={() => step(-0.5)} disabled={writing} />

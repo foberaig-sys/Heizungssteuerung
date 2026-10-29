@@ -4,7 +4,10 @@ import { WebViewBridge } from './keba/bridge';
 import { KebaClient, KebaError, directPost, normalizeLocalAddress } from './keba/client';
 import { PortalMessage, buildPortalAutomationScript, portalStepLabel } from './keba/portalAutomation';
 import { HeatingSnapshot, KebaTransport, loadSnapshot } from './keba/service';
-import { Settings, hasPortalCredentials } from './settings';
+import { ModbusTcpClient } from './modbus/modbusClient';
+import { ModbusTransport } from './modbus/modbusTransport';
+import { isModbusAvailable, loadSocketFactory } from './modbus/nativeSocket';
+import { Settings, circuitNameList, hasPortalCredentials } from './settings';
 
 export type Phase = 'notConnected' | 'loading' | 'ready' | 'failed' | 'sessionExpired';
 
@@ -29,12 +32,16 @@ interface HeatingContextValue {
   /** Fehler, der auftritt, während schon Daten angezeigt werden (z. B. Schreibfehler). */
   transientError?: string;
   writing: boolean;
+  /** Letzte Aktualisierung fehlgeschlagen (z. B. außer Haus) – angezeigt wird der letzte Stand. */
+  offline: boolean;
   remoteStage: RemoteStage;
   /** Erhöht sich bei jedem neuen Verbindungsaufbau, damit die WebView frisch startet. */
   remoteSession: number;
   /** Skript für die automatische Anmeldung (nur in Stufe „auto“). */
   portalScript?: string;
   bridge: WebViewBridge;
+  /** Ob sich ein Wert über die aktuelle Verbindung ändern lässt (Modbus: nur bestätigte Sollwerte). */
+  canWrite: (variableName: string) => boolean;
   connect: (settings: Settings) => Promise<void>;
   cancelRemoteLogin: () => void;
   onHmiReached: () => void;
@@ -63,7 +70,8 @@ const AUTO_RECONNECT_INTERVAL_MS = 60_000;
 
 export function HeatingProvider({ children }: { children: ReactNode }) {
   const bridge = useRef(new WebViewBridge()).current;
-  const client = useRef<KebaClient | null>(null);
+  const client = useRef<KebaTransport | null>(null);
+  const modbusClient = useRef<ModbusTcpClient | null>(null);
   const refreshing = useRef(false);
   const settingsRef = useRef<Settings | null>(null);
   const lastAutoConnect = useRef(0);
@@ -76,6 +84,7 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
   const [loginNotice, setLoginNotice] = useState<string>();
   const [transientError, setTransientError] = useState<string>();
   const [writing, setWriting] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [remoteStage, setRemoteStage] = useState<RemoteStage>('idle');
   const [remoteSession, setRemoteSession] = useState(0);
   const [portalScript, setPortalScript] = useState<string>();
@@ -151,16 +160,27 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       const next = await loadSnapshot(client.current);
       snapshotRef.current = next;
       setSnapshot(next);
+      setOffline(false);
       setPhase('ready');
     } catch (e) {
+      // Regelmäßiges Aktualisieren ohne Netz: kein Fehlerfenster alle 30 s, nur Hinweis „letzter Stand“.
+      if (e instanceof KebaError && e.kind === 'network' && snapshotRef.current) {
+        setOffline(true);
+        return;
+      }
       handleError(e);
     } finally {
       refreshing.current = false;
     }
   }, [handleError]);
 
+  const closeModbus = useCallback(() => {
+    modbusClient.current?.close();
+    modbusClient.current = null;
+  }, []);
+
   const start = useCallback(
-    async (next: KebaClient) => {
+    async (next: KebaTransport) => {
       client.current = next;
       setError(undefined);
       if (!snapshotRef.current) {
@@ -179,8 +199,31 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       setSnapshot(undefined);
       setError(undefined);
 
+      closeModbus();
       if (settings.mode === 'remote') {
         startRemote(settings);
+        return;
+      }
+
+      if (settings.mode === 'modbus') {
+        setRemoteStage('idle');
+        bridge.reset();
+        const host = settings.modbusAddress.trim().replace(/^[a-z]+:\/\//i, '').replace(/[:/].*$/, '');
+        if (!host) {
+          fail('Bitte die IP-Adresse der Wärmepumpe eintragen (z. B. 192.168.0.100).');
+          return;
+        }
+        const factory = isModbusAvailable() ? await loadSocketFactory() : undefined;
+        if (!factory) {
+          fail(
+            'Modbus braucht die eigene App-Version – in Expo Go/Snack gibt es keine TCP-Verbindungen. ' +
+              'Zum Testen in Snack in den Einstellungen „Fernzugriff“ wählen.',
+          );
+          return;
+        }
+        const mb = new ModbusTcpClient(factory, host, 502, 1);
+        modbusClient.current = mb;
+        await start(new ModbusTransport(mb, { circuitNames: circuitNameList(settings) }));
         return;
       }
 
@@ -194,7 +237,7 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       const auth = settings.username ? { username: settings.username, password: settings.password } : undefined;
       await start(new KebaClient(directPost(url, auth)));
     },
-    [bridge, fail, start, startRemote],
+    [bridge, closeModbus, fail, start, startRemote],
   );
 
   const cancelRemoteLogin = useCallback(() => {
@@ -265,13 +308,19 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
 
   const disconnect = useCallback(() => {
     bridge.reset();
+    closeModbus();
     client.current = null;
     settingsRef.current = null;
     snapshotRef.current = undefined;
     setSnapshot(undefined);
     setRemoteStage('idle');
     setPhase('notConnected');
-  }, [bridge]);
+  }, [bridge, closeModbus]);
+
+  const canWrite = useCallback((name: string) => {
+    const transport = client.current;
+    return transport instanceof ModbusTransport ? transport.canWrite(name) : true;
+  }, []);
 
   const clearTransientError = useCallback(() => setTransientError(undefined), []);
 
@@ -285,10 +334,12 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       diagnostics,
       transientError,
       writing,
+      offline,
       remoteStage,
       remoteSession,
       portalScript,
       bridge,
+      canWrite,
       connect,
       cancelRemoteLogin,
       onHmiReached,
@@ -301,8 +352,8 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       disconnect,
       clearTransientError,
     }),
-    [phase, snapshot, error, progress, loginNotice, diagnostics, transientError, writing, remoteStage,
-      remoteSession, portalScript, bridge, connect, cancelRemoteLogin, onHmiReached, onHmiLeft, onPortalMessage,
+    [phase, snapshot, error, progress, loginNotice, diagnostics, transientError, writing, offline, remoteStage,
+      remoteSession, portalScript, bridge, canWrite, connect, cancelRemoteLogin, onHmiReached, onHmiLeft, onPortalMessage,
       revealPortal, addDiagnostic, refresh, perform, disconnect, clearTransientError],
   );
 

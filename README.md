@@ -17,7 +17,8 @@ Die App spricht direkt mit derselben JSON-Schnittstelle, die auch die WebHMI im 
 
 | Modus | Wie | Wann |
 |---|---|---|
-| **KEBA Fernzugriff** (Standard) | Einmal in den Einstellungen Benutzername und Passwort von `remote.keba.com` eintragen. Ab dann meldet sich die App bei jedem Start **unsichtbar selbst** an und öffnet die Anlage – du siehst keine Webseite, nur die App. | funktioniert überall |
+| **Modbus** (empfohlen) | IP-Adresse der Wärmepumpe (Display → Netzwerk → LAN, z. B. `192.168.0.100`). Direkt, ohne Website, ohne Passwort. Braucht die eigene App-Version (siehe unten). | im WLAN zuhause oder per VPN |
+| **KEBA Fernzugriff** | Einmal in den Einstellungen Benutzername und Passwort von `remote.keba.com` eintragen. Ab dann meldet sich die App bei jedem Start **unsichtbar selbst** an und öffnet die Anlage – du siehst keine Webseite, nur die App. | funktioniert überall |
 | **Heimnetz / VPN** | IP-Adresse des Reglers eintragen (Router → Geräteliste, z. B. `192.168.1.50`) | schneller, ohne Hersteller-Portal; unterwegs per eigenem VPN |
 
 So funktioniert der Fernzugriff technisch: Die App öffnet eine unsichtbare WebView, meldet sich darin im
@@ -64,23 +65,38 @@ neu erzeugen:
 npm run snack
 ```
 
-## 2. Als normale App installieren (mit Apple Developer Konto)
+## 2. Eigene App-Version – nötig für Modbus
 
-Gebaut wird in der Cloud von Expo (EAS), ein Mac ist nicht nötig. Kostenloses Konto auf
-<https://expo.dev> anlegen, dann:
+Modbus (direkt im Heimnetz, ohne Website und ohne Passwort) braucht eine direkte TCP-Verbindung. Die gibt es
+in Expo Go/Snack nicht, sondern nur in einer eigenen App-Version. Gebaut wird in der Cloud von Expo (EAS),
+ein Mac ist nicht nötig, wohl aber ein **Apple Developer Konto**.
+
+1. In [app.json](app.json) `ios.bundleIdentifier` auf etwas Eigenes ändern, z. B. `at.deinname.heizung`.
+2. Kostenloses Konto auf <https://expo.dev> anlegen und anmelden:
 
 ```bash
 npx eas-cli@latest login
 ```
 
+3. Das iPhone einmal für Test-Apps registrieren (Link öffnen, Profil installieren):
+
+```bash
+npx eas-cli@latest device:create
+```
+
+4. App bauen (dauert ca. 15–20 Minuten, EAS fragt nach dem Apple-Konto und richtet Zertifikate selbst ein):
+
+```bash
+npx eas-cli@latest build -p ios --profile preview
+```
+
+Am Ende kommt ein Link/QR-Code, über den sich die App direkt aufs iPhone installieren lässt.
+
+Später für den App Store bzw. TestFlight:
+
 ```bash
 npx eas-cli@latest build -p ios --profile production
 ```
-
-EAS fragt nach deinem Apple-Konto und richtet Zertifikate und Bundle-ID selbst ein. Vorher in
-[app.json](app.json) `ios.bundleIdentifier` auf etwas Eigenes ändern, z. B. `de.deinname.heizung`.
-
-Danach an TestFlight übertragen und dort auf dem iPhone installieren:
 
 ```bash
 npx eas-cli@latest submit -p ios --latest

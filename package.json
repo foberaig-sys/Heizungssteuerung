@@ -5,11 +5,13 @@
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~58.0.21",
+    "expo-dev-client": "~58.0.17",
     "expo-secure-store": "~58.0.2",
     "expo-status-bar": "~58.0.4",
     "react": "19.3.0",
     "react-native": "0.88.1",
     "react-native-safe-area-context": "~5.10.1",
+    "react-native-tcp-socket": "^6.4.3",
     "react-native-webview": "14.0.1"
   },
   "devDependencies": {
@@ -26,7 +28,7 @@
     "ios": "expo start --ios",
     "android": "expo start --android",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test src/keba/*.test.ts",
+    "test": "node --import tsx --test src/keba/*.test.ts src/modbus/*.test.ts",
     "snack": "node scripts/build-snack.mjs"
   },
   "private": true

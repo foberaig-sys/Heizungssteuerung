@@ -1,10 +1,15 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 
-export type ConnectionMode = 'remote' | 'local';
+/** modbus: direkt im Heimnetz ohne Passwort (eigene App-Version nötig); remote: über remote.keba.com; local: Web-HMI im Heimnetz. */
+export type ConnectionMode = 'modbus' | 'remote' | 'local';
 
 export interface Settings {
   mode: ConnectionMode;
+  /** IP-Adresse der Wärmepumpe für Modbus TCP (Port 502). */
+  modbusAddress: string;
+  /** Namen der Heizkreise, kommagetrennt – Modbus liefert keine Namen. Die Anzahl legt die Heizkreise fest. */
+  circuitNames: string;
   /** Zugang zu remote.keba.com – damit meldet sich die App unsichtbar selbst an. */
   portalUsername: string;
   portalPassword: string;
@@ -17,7 +22,9 @@ export interface Settings {
 }
 
 export const defaultSettings: Settings = {
-  mode: 'remote',
+  mode: 'modbus',
+  modbusAddress: '192.168.0.100',
+  circuitNames: 'Puffer FBH, Heizkörper',
   portalUsername: '',
   portalPassword: '',
   portalDevice: 'WebHmi',
@@ -26,7 +33,24 @@ export const defaultSettings: Settings = {
   password: '',
 };
 
+export function circuitNameList(s: Settings): string[] {
+  const names = s.circuitNames.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 8);
+  return names.length > 0 ? names : ['Heizkreis 1'];
+}
+
 export const hasPortalCredentials = (s: Settings) => s.portalUsername.trim() !== '' && s.portalPassword !== '';
+
+/** Reicht das Eingetragene, um ohne Rückfrage zu verbinden? */
+export function isConfigured(s: Settings): boolean {
+  switch (s.mode) {
+    case 'modbus':
+      return s.modbusAddress.trim() !== '';
+    case 'remote':
+      return hasPortalCredentials(s);
+    case 'local':
+      return s.localAddress.trim() !== '';
+  }
+}
 
 const KEY = 'heizung.settings';
 // Passwörter liegen im iOS-Schlüsselbund, nicht im normalen App-Speicher.
