@@ -46,11 +46,31 @@ export function RemoteHost() {
   useEffect(() => {
     if (remoteStage !== 'auto') return;
     const timer = setTimeout(() => {
-      addDiagnostic('Zeitgrenze erreicht (45 s)');
+      addDiagnostic('Zeitgrenze erreicht (60 s)');
       revealPortal('Die automatische Anmeldung hängt. Bitte von Hand anmelden und „WebHmi“ → „WWW“ antippen.');
-    }, 45000);
+    }, 60000);
     return () => clearTimeout(timer);
   }, [remoteStage, remoteSession, revealPortal, addDiagnostic]);
+
+  // Automatik alle 3 s (erneut) in die aktuelle Seite geben. Nicht auf „fertig geladen“ warten:
+  // Das Portal hält Verbindungen offen, die WebView meldet dann womöglich nie onLoadEnd.
+  // Das Skript merkt sich selbst, dass es schon läuft; nach einem Seitenwechsel startet es neu.
+  useEffect(() => {
+    if (remoteStage !== 'auto' || !portalScript) return;
+    const timer = setInterval(() => webView.current?.injectJavaScript(portalScript), 3000);
+    return () => clearInterval(timer);
+  }, [remoteStage, remoteSession, portalScript]);
+
+  // onLoadEnd und die "hmi"-Nachricht können beide kommen – pro Sitzung nur einmal verbinden.
+  const reachedSession = useRef(-1);
+  const hmiReached = (url: string) => {
+    if (remoteStage !== 'auto' && remoteStage !== 'login') return;
+    if (reachedSession.current === remoteSession) return;
+    reachedSession.current = remoteSession;
+    addDiagnostic(`HMI erreicht: ${url}`);
+    bridge.attach(webView.current);
+    onHmiReached();
+  };
 
   // Übernimmt der Nutzer, darf die Automatik nicht mehr dazwischenklicken.
   useEffect(() => {
@@ -68,14 +88,17 @@ export function RemoteHost() {
         <View style={[styles.header, { paddingTop: insets.top + 8, backgroundColor: theme.card }]}>
           <View style={styles.headerRow}>
             <Text style={[styles.title, { color: theme.text }]}>KEBA Fernzugriff</Text>
-            <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
+            <View style={styles.headerButtons}>
+              <Button title="Neu laden" kind="secondary" onPress={() => webView.current?.reload()} />
+              <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
+            </View>
           </View>
           <Text style={[styles.hint, { color: theme.secondary }]}>
             {loginNotice ??
               'Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App künftig selbst an. Jetzt: anmelden, Anlage aufklappen, „WebHmi“ und dann „WWW“ antippen.'}
           </Text>
           {loginNotice !== undefined &&
-            diagnostics.slice(-3).map((line, i) => (
+            diagnostics.slice(-5).map((line, i) => (
               <Text key={i} style={[styles.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
                 {line}
               </Text>
@@ -98,8 +121,11 @@ export function RemoteHost() {
           const data = event.nativeEvent.data;
           if (bridge.handleMessage(data)) return;
           const portal = parsePortalMessage(data);
-          if (portal) onPortalMessage(portal);
+          if (!portal) return;
+          if ('step' in portal && portal.step === 'hmi') hmiReached(portal.info ?? '');
+          else onPortalMessage(portal);
         }}
+        onLoadStart={(event) => addDiagnostic(`Lädt: ${event.nativeEvent.url}`)}
         onError={(event) => addDiagnostic(`Ladefehler: ${event.nativeEvent.description} (${event.nativeEvent.url})`)}
         onHttpError={(event) => addDiagnostic(`HTTP ${event.nativeEvent.statusCode}: ${event.nativeEvent.url}`)}
         onLoadEnd={(event) => {
@@ -110,9 +136,8 @@ export function RemoteHost() {
             // Zusätzlich zu injectedJavaScript: manche Seiten/Versionen führen das Prop nicht aus.
             webView.current?.injectJavaScript(portalScript);
           }
-          if ((remoteStage === 'auto' || remoteStage === 'login') && isHmi) {
-            bridge.attach(webView.current);
-            onHmiReached();
+          if (isHmi) {
+            hmiReached(url);
           } else if (remoteStage === 'connected' && !isHmi) {
             onHmiLeft();
           }
@@ -128,6 +153,7 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0.01, zIndex: -1 },
   header: { paddingHorizontal: 16, paddingBottom: 10 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  headerButtons: { flexDirection: 'row', gap: 8 },
   title: { fontSize: 20, fontWeight: '700' },
   hint: { fontSize: 14, marginTop: 6 },
   diagnostic: { fontSize: 11, marginTop: 4 },

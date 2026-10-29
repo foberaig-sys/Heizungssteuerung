@@ -12,7 +12,8 @@ export interface PortalCredentials {
   device: string;
 }
 
-export type PortalStep = 'alive' | 'login' | 'expand' | 'device' | 'www';
+/** 'hmi' = das Skript läuft auf der HMI-Seite (eigener Port) – der Tunnel steht. */
+export type PortalStep = 'alive' | 'login' | 'expand' | 'device' | 'www' | 'hmi';
 
 export type PortalMessage =
   | { kebaPortal: true; step: PortalStep; info?: string }
@@ -37,6 +38,7 @@ export function portalStepLabel(step: PortalStep | undefined): string {
     case 'device':
       return 'Anlage wird gesucht …';
     case 'www':
+    case 'hmi':
       return 'Verbindung zur Heizung wird aufgebaut …';
     default:
       return 'Verbinde mit KEBA …';
@@ -46,7 +48,7 @@ export function portalStepLabel(step: PortalStep | undefined): string {
 /** Setzt ein Stopp-Signal für die Automatik (z. B. wenn der Nutzer übernimmt). */
 export const STOP_PORTAL_AUTOMATION_SCRIPT = 'window.__kebaPortalStop = true; true;';
 
-export function buildPortalAutomationScript(credentials: PortalCredentials, timeoutSeconds = 60): string {
+export function buildPortalAutomationScript(credentials: PortalCredentials, timeoutSeconds = 75): string {
   const config = JSON.stringify({
     username: credentials.username,
     password: credentials.password,
@@ -55,8 +57,15 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
   });
 
   return `(function(){
-  // Auf der HMI selbst (eigener Port) nichts tun.
-  if (window.location.port && window.location.port !== '443') return;
+  // Auf der HMI selbst (eigener Port): nur melden, dass sie erreicht ist – unabhängig davon,
+  // ob die WebView jemals „fertig geladen“ meldet.
+  if (window.location.port && window.location.port !== '443') {
+    if (!window.__kebaHmiSent) {
+      window.__kebaHmiSent = true;
+      try { window.ReactNativeWebView.postMessage(JSON.stringify({ kebaPortal: true, step: 'hmi', info: location.href })); } catch (e) {}
+    }
+    return;
+  }
   if (window.__kebaPortal) return;
   window.__kebaPortal = true;
   var cfg = ${config};
@@ -120,7 +129,7 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
   }
   function describe() {
     var inputs = all('input').filter(visible).map(function (i) { return i.type || 'text'; });
-    return location.href.slice(0, 80) + ' | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
+    return location.href.slice(0, 80) + ' (' + document.readyState + ') | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
       ' | Text: ' + (document.body ? text(document.body).slice(0, 120) : '–');
   }
 

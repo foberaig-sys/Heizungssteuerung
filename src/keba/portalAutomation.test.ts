@@ -171,3 +171,17 @@ test('Stopp-Signal beendet die Automatik', () => {
   portal.advance(2);
   assert.equal(portal.running(), false);
 });
+
+test('meldet auf der HMI-Seite einmalig "hmi"', () => {
+  const dom = new JSDOM('<body>HMI</body>', { runScripts: 'outside-only', url: 'https://remote.keba.com:58841/' });
+  const w = dom.window;
+  const messages: PortalMessage[] = [];
+  (w as unknown as { ReactNativeWebView: unknown }).ReactNativeWebView = {
+    postMessage: (data: string) => messages.push(parsePortalMessage(data)!),
+  };
+  const script = buildPortalAutomationScript({ username: 'u', password: 'p', device: 'WebHmi' });
+  w.eval(script);
+  w.eval(script);
+  assert.equal(messages.length, 1);
+  assert.equal('step' in messages[0] && messages[0].step, 'hmi');
+});

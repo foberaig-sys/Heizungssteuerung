@@ -406,13 +406,14 @@ function portalStepLabel(step) {
     case "device":
       return "Anlage wird gesucht \u2026";
     case "www":
+    case "hmi":
       return "Verbindung zur Heizung wird aufgebaut \u2026";
     default:
       return "Verbinde mit KEBA \u2026";
   }
 }
 var STOP_PORTAL_AUTOMATION_SCRIPT = "window.__kebaPortalStop = true; true;";
-function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
+function buildPortalAutomationScript(credentials, timeoutSeconds = 75) {
   const config = JSON.stringify({
     username: credentials.username,
     password: credentials.password,
@@ -420,8 +421,15 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
     timeout: timeoutSeconds
   });
   return `(function(){
-  // Auf der HMI selbst (eigener Port) nichts tun.
-  if (window.location.port && window.location.port !== '443') return;
+  // Auf der HMI selbst (eigener Port): nur melden, dass sie erreicht ist \u2013 unabh\xE4ngig davon,
+  // ob die WebView jemals \u201Efertig geladen\u201C meldet.
+  if (window.location.port && window.location.port !== '443') {
+    if (!window.__kebaHmiSent) {
+      window.__kebaHmiSent = true;
+      try { window.ReactNativeWebView.postMessage(JSON.stringify({ kebaPortal: true, step: 'hmi', info: location.href })); } catch (e) {}
+    }
+    return;
+  }
   if (window.__kebaPortal) return;
   window.__kebaPortal = true;
   var cfg = ${config};
@@ -485,7 +493,7 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
   }
   function describe() {
     var inputs = all('input').filter(visible).map(function (i) { return i.type || 'text'; });
-    return location.href.slice(0, 80) + ' | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
+    return location.href.slice(0, 80) + ' (' + document.readyState + ') | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
       ' | Text: ' + (document.body ? text(document.body).slice(0, 120) : '\u2013');
   }
 
@@ -1344,11 +1352,25 @@ function RemoteHost() {
   useEffect2(() => {
     if (remoteStage !== "auto") return;
     const timer = setTimeout(() => {
-      addDiagnostic("Zeitgrenze erreicht (45 s)");
+      addDiagnostic("Zeitgrenze erreicht (60 s)");
       revealPortal("Die automatische Anmeldung h\xE4ngt. Bitte von Hand anmelden und \u201EWebHmi\u201C \u2192 \u201EWWW\u201C antippen.");
-    }, 45e3);
+    }, 6e4);
     return () => clearTimeout(timer);
   }, [remoteStage, remoteSession, revealPortal, addDiagnostic]);
+  useEffect2(() => {
+    if (remoteStage !== "auto" || !portalScript) return;
+    const timer = setInterval(() => webView.current?.injectJavaScript(portalScript), 3e3);
+    return () => clearInterval(timer);
+  }, [remoteStage, remoteSession, portalScript]);
+  const reachedSession = useRef2(-1);
+  const hmiReached = (url) => {
+    if (remoteStage !== "auto" && remoteStage !== "login") return;
+    if (reachedSession.current === remoteSession) return;
+    reachedSession.current = remoteSession;
+    addDiagnostic(`HMI erreicht: ${url}`);
+    bridge.attach(webView.current);
+    onHmiReached();
+  };
   useEffect2(() => {
     if (remoteStage === "login") webView.current?.injectJavaScript(STOP_PORTAL_AUTOMATION_SCRIPT);
   }, [remoteStage]);
@@ -1360,12 +1382,15 @@ function RemoteHost() {
       {visible && <View3 style={[styles4.header, { paddingTop: insets.top + 8, backgroundColor: theme.card }]}>
           <View3 style={styles4.headerRow}>
             <Text4 style={[styles4.title, { color: theme.text }]}>KEBA Fernzugriff</Text4>
-            <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
+            <View3 style={styles4.headerButtons}>
+              <Button title="Neu laden" kind="secondary" onPress={() => webView.current?.reload()} />
+              <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
+            </View3>
           </View3>
           <Text4 style={[styles4.hint, { color: theme.secondary }]}>
             {loginNotice ?? "Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App k\xFCnftig selbst an. Jetzt: anmelden, Anlage aufklappen, \u201EWebHmi\u201C und dann \u201EWWW\u201C antippen."}
           </Text4>
-          {loginNotice !== void 0 && diagnostics.slice(-3).map((line, i) => <Text4 key={i} style={[styles4.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
+          {loginNotice !== void 0 && diagnostics.slice(-5).map((line, i) => <Text4 key={i} style={[styles4.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
                 {line}
               </Text4>)}
         </View3>}
@@ -1384,8 +1409,11 @@ function RemoteHost() {
       const data = event.nativeEvent.data;
       if (bridge.handleMessage(data)) return;
       const portal = parsePortalMessage(data);
-      if (portal) onPortalMessage(portal);
+      if (!portal) return;
+      if ("step" in portal && portal.step === "hmi") hmiReached(portal.info ?? "");
+      else onPortalMessage(portal);
     }}
+    onLoadStart={(event) => addDiagnostic(`L\xE4dt: ${event.nativeEvent.url}`)}
     onError={(event) => addDiagnostic(`Ladefehler: ${event.nativeEvent.description} (${event.nativeEvent.url})`)}
     onHttpError={(event) => addDiagnostic(`HTTP ${event.nativeEvent.statusCode}: ${event.nativeEvent.url}`)}
     onLoadEnd={(event) => {
@@ -1395,9 +1423,8 @@ function RemoteHost() {
       if (remoteStage === "auto" && !isHmi && portalScript) {
         webView.current?.injectJavaScript(portalScript);
       }
-      if ((remoteStage === "auto" || remoteStage === "login") && isHmi) {
-        bridge.attach(webView.current);
-        onHmiReached();
+      if (isHmi) {
+        hmiReached(url);
       } else if (remoteStage === "connected" && !isHmi) {
         onHmiLeft();
       }
@@ -1411,6 +1438,7 @@ var styles4 = StyleSheet4.create({
   hidden: { opacity: 0.01, zIndex: -1 },
   header: { paddingHorizontal: 16, paddingBottom: 10 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  headerButtons: { flexDirection: "row", gap: 8 },
   title: { fontSize: 20, fontWeight: "700" },
   hint: { fontSize: 14, marginTop: 6 },
   diagnostic: { fontSize: 11, marginTop: 4 }
