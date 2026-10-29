@@ -398,6 +398,8 @@ function parsePortalMessage(data) {
 }
 function portalStepLabel(step) {
   switch (step) {
+    case "alive":
+      return "Portal ge\xF6ffnet \u2026";
     case "login":
       return "Anmelden bei KEBA \u2026";
     case "expand":
@@ -409,6 +411,7 @@ function portalStepLabel(step) {
       return "Verbinde mit KEBA \u2026";
   }
 }
+var STOP_PORTAL_AUTOMATION_SCRIPT = "window.__kebaPortalStop = true; true;";
 function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
   const config = JSON.stringify({
     username: credentials.username,
@@ -423,7 +426,7 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
   window.__kebaPortal = true;
   var cfg = ${config};
   var started = Date.now();
-  var last = { login: 0, expand: 0, device: 0, www: 0 };
+  var last = { login: 0, expand: 0, device: 0, www: 0, info: 0 };
   var loginAttempts = 0;
   var timer;
 
@@ -434,11 +437,28 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
   function stop() { clearInterval(timer); }
   function since(key, ms) { return Date.now() - last[key] > ms; }
 
+  // Hauptdokument plus alle iFrames, auf die wir zugreifen d\xFCrfen (gleicher Ursprung).
+  function docs() {
+    var list = [document];
+    for (var i = 0; i < list.length; i++) {
+      var frames = list[i].querySelectorAll('iframe,frame');
+      for (var j = 0; j < frames.length; j++) {
+        try { if (frames[j].contentDocument && frames[j].contentDocument.body) list.push(frames[j].contentDocument); } catch (e) {}
+      }
+    }
+    return list;
+  }
+  function all(selector) {
+    var out = [];
+    docs().forEach(function (d) { Array.prototype.push.apply(out, d.querySelectorAll(selector)); });
+    return out;
+  }
   // Sichtbar = kein Vorfahre mit display:none / visibility:hidden (jQuery Mobile versteckt alte Seiten so).
   function visible(el) {
+    var view = el.ownerDocument.defaultView || window;
     for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
       if (n.hidden) return false;
-      var s = window.getComputedStyle(n);
+      var s = view.getComputedStyle(n);
       if (s.display === 'none' || s.visibility === 'hidden') return false;
     }
     return true;
@@ -446,42 +466,51 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
   function text(el) { return (el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim(); }
   // Das innerste sichtbare Element, dessen Text passt.
   function find(test) {
-    var all = document.body ? document.body.querySelectorAll('*') : [];
     var hit = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+    all('body *').forEach(function (el) {
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
       if (test(text(el).toLowerCase(), el) && visible(el)) {
         if (!hit || hit.contains(el)) hit = el;
       }
-    }
+    });
     return hit;
   }
   function clickable(el) { return el.closest('a,button,li,[onclick],[role=button]') || el; }
   function setValue(input, value) {
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    var view = input.ownerDocument.defaultView || window;
+    var setter = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value').set;
     setter.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new view.Event('input', { bubbles: true }));
+    input.dispatchEvent(new view.Event('change', { bubbles: true }));
+  }
+  function describe() {
+    var inputs = all('input').filter(visible).map(function (i) { return i.type || 'text'; });
+    return location.href.slice(0, 80) + ' | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
+      ' | Text: ' + (document.body ? text(document.body).slice(0, 120) : '\u2013');
   }
 
   function step() {
+    if (window.__kebaPortalStop) { stop(); return; }
     if (Date.now() - started > cfg.timeout * 1000) {
       stop();
-      send({ error: 'timeout', detail: (document.body ? text(document.body) : '').slice(0, 300) });
+      send({ error: 'timeout', detail: describe() });
       return;
+    }
+    if (since('info', 5000)) {
+      last.info = Date.now();
+      send({ step: 'alive', info: describe() });
     }
 
     // 1. Login-Formular
-    var password = Array.prototype.filter.call(document.querySelectorAll('input[type=password]'), visible)[0];
+    var password = all('input[type=password]').filter(visible)[0];
     if (password) {
       if (!since('login', 8000)) return;
       if (loginAttempts >= 2) {
         stop();
-        send({ error: 'loginFailed', detail: text(document.body).slice(0, 300) });
+        send({ error: 'loginFailed', detail: describe() });
         return;
       }
-      var fields = Array.prototype.filter.call(document.querySelectorAll('input'), function (i) {
+      var fields = all('input').filter(function (i) {
         var t = (i.getAttribute('type') || 'text').toLowerCase();
         return visible(i) && (t === 'text' || t === 'email');
       });
@@ -491,7 +520,8 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
       loginAttempts++;
       send({ step: 'login' });
       var button = find(function (t, el) {
-        return /^(login|log in|anmelden|sign in)$/.test(t) || (el.tagName === 'INPUT' && /submit|button/i.test(el.type) && /login|anmelden/i.test(el.value));
+        return /^(login|log in|anmelden|sign in)$/.test(t) ||
+          (el.tagName === 'INPUT' && /submit|button/i.test(el.type) && /login|anmelden/i.test(el.value));
       });
       if (button) clickable(button).click();
       else if (password.form) password.form.submit();
@@ -525,8 +555,8 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
 
     // Gruppe zugeklappt \u2192 aufklappen (jQuery Mobile \u201Ecollapsible\u201C)
     if (since('expand', 4000)) {
-      var heads = document.querySelectorAll('.ui-collapsible-collapsed .ui-collapsible-heading-toggle, .ui-collapsible-heading-collapsed a, [data-role=collapsible] > h1, [data-role=collapsible] > h2, [data-role=collapsible] > h3, [data-role=collapsible] > h4');
-      var head = Array.prototype.filter.call(heads, visible)[0];
+      var heads = all('.ui-collapsible-collapsed .ui-collapsible-heading-toggle, .ui-collapsible-heading-collapsed a, [data-role=collapsible] > h1, [data-role=collapsible] > h2, [data-role=collapsible] > h3, [data-role=collapsible] > h4');
+      var head = heads.filter(visible)[0];
       if (head) {
         last.expand = Date.now();
         send({ step: 'expand' });
@@ -535,6 +565,7 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 60) {
     }
   }
 
+  send({ step: 'alive', info: describe() });
   timer = setInterval(step, 1000);
   step();
 })(); true;`;
@@ -605,6 +636,11 @@ function HeatingProvider({ children }) {
   const [remoteStage, setRemoteStage] = useState("idle");
   const [remoteSession, setRemoteSession] = useState(0);
   const [portalScript, setPortalScript] = useState();
+  const [diagnostics, setDiagnostics] = useState([]);
+  const addDiagnostic = useCallback((line) => {
+    const time = (/* @__PURE__ */ new Date()).toLocaleTimeString("de-DE");
+    setDiagnostics((d) => [...d.slice(-7), `${time} ${line}`]);
+  }, []);
   const fail = useCallback((message) => {
     setError(message);
     setPhase("failed");
@@ -613,6 +649,7 @@ function HeatingProvider({ children }) {
     (settings, notice) => {
       bridge.reset();
       client.current = null;
+      setDiagnostics([]);
       setRemoteSession((n) => n + 1);
       if (hasPortalCredentials(settings) && !notice) {
         lastAutoConnect.current = Date.now();
@@ -717,24 +754,30 @@ function HeatingProvider({ children }) {
     client.current = null;
     handleError(new KebaError("sessionExpired", "Die Sitzung ist abgelaufen."));
   }, [bridge, handleError]);
+  const revealPortal = useCallback((notice) => {
+    setLoginNotice(notice);
+    setRemoteStage((stage) => stage === "auto" ? "login" : stage);
+  }, []);
   const onPortalMessage = useCallback(
     (message) => {
       if ("step" in message) {
-        setProgress(portalStepLabel(message.step));
+        if (message.step === "alive") {
+          if (message.info) addDiagnostic(`Seite: ${message.info}`);
+          setProgress((p) => p === portalStepLabel(void 0) ? portalStepLabel("alive") : p);
+        } else {
+          addDiagnostic(`Schritt: ${message.step}`);
+          setProgress(portalStepLabel(message.step));
+        }
         return;
       }
-      const settings = settingsRef.current;
+      addDiagnostic(`Abbruch: ${message.error} ${message.detail ?? ""}`);
       if (message.error === "loginFailed") {
-        setRemoteStage("idle");
-        fail("Anmeldung bei remote.keba.com fehlgeschlagen. Bitte Benutzername und Passwort in den Einstellungen pr\xFCfen.");
-      } else if (settings) {
-        startRemote(
-          settings,
-          "Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand \u201EWebHmi\u201C \u2192 \u201EWWW\u201C antippen."
-        );
+        revealPortal("Anmeldung fehlgeschlagen \u2013 bitte Benutzername und Passwort in den Einstellungen pr\xFCfen oder hier von Hand anmelden.");
+      } else {
+        revealPortal("Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand \u201EWebHmi\u201C \u2192 \u201EWWW\u201C antippen.");
       }
     },
-    [fail, startRemote]
+    [addDiagnostic, revealPortal]
   );
   const perform = useCallback(
     async (action) => {
@@ -769,6 +812,7 @@ function HeatingProvider({ children }) {
       error,
       progress,
       loginNotice,
+      diagnostics,
       transientError,
       writing,
       remoteStage,
@@ -780,6 +824,8 @@ function HeatingProvider({ children }) {
       onHmiReached,
       onHmiLeft,
       onPortalMessage,
+      revealPortal,
+      addDiagnostic,
       refresh,
       perform,
       disconnect,
@@ -791,6 +837,7 @@ function HeatingProvider({ children }) {
       error,
       progress,
       loginNotice,
+      diagnostics,
       transientError,
       writing,
       remoteStage,
@@ -802,6 +849,8 @@ function HeatingProvider({ children }) {
       onHmiReached,
       onHmiLeft,
       onPortalMessage,
+      revealPortal,
+      addDiagnostic,
       refresh,
       perform,
       disconnect,
@@ -1280,7 +1329,10 @@ function RemoteHost() {
     onHmiReached,
     onHmiLeft,
     onPortalMessage,
-    cancelRemoteLogin
+    cancelRemoteLogin,
+    revealPortal,
+    addDiagnostic,
+    diagnostics
   } = useHeating();
   const webView = useRef2(null);
   const theme = useTheme();
@@ -1289,6 +1341,17 @@ function RemoteHost() {
   useEffect2(() => {
     bridge.attach(remoteStage === "connected" ? webView.current : null);
   }, [bridge, remoteStage]);
+  useEffect2(() => {
+    if (remoteStage !== "auto") return;
+    const timer = setTimeout(() => {
+      addDiagnostic("Zeitgrenze erreicht (45 s)");
+      revealPortal("Die automatische Anmeldung h\xE4ngt. Bitte von Hand anmelden und \u201EWebHmi\u201C \u2192 \u201EWWW\u201C antippen.");
+    }, 45e3);
+    return () => clearTimeout(timer);
+  }, [remoteStage, remoteSession, revealPortal, addDiagnostic]);
+  useEffect2(() => {
+    if (remoteStage === "login") webView.current?.injectJavaScript(STOP_PORTAL_AUTOMATION_SCRIPT);
+  }, [remoteStage]);
   if (remoteStage === "idle") return null;
   return <View3
     style={[StyleSheet4.absoluteFill, visible ? { backgroundColor: theme.background } : styles4.hidden]}
@@ -1302,6 +1365,9 @@ function RemoteHost() {
           <Text4 style={[styles4.hint, { color: theme.secondary }]}>
             {loginNotice ?? "Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App k\xFCnftig selbst an. Jetzt: anmelden, Anlage aufklappen, \u201EWebHmi\u201C und dann \u201EWWW\u201C antippen."}
           </Text4>
+          {loginNotice !== void 0 && diagnostics.slice(-3).map((line, i) => <Text4 key={i} style={[styles4.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
+                {line}
+              </Text4>)}
         </View3>}
       <KebaWebView
     key={remoteSession}
@@ -1320,8 +1386,15 @@ function RemoteHost() {
       const portal = parsePortalMessage(data);
       if (portal) onPortalMessage(portal);
     }}
+    onError={(event) => addDiagnostic(`Ladefehler: ${event.nativeEvent.description} (${event.nativeEvent.url})`)}
+    onHttpError={(event) => addDiagnostic(`HTTP ${event.nativeEvent.statusCode}: ${event.nativeEvent.url}`)}
     onLoadEnd={(event) => {
-      const isHmi = hmiBaseUrl(event.nativeEvent.url) !== void 0;
+      const url = event.nativeEvent.url;
+      addDiagnostic(`Geladen: ${url}`);
+      const isHmi = hmiBaseUrl(url) !== void 0;
+      if (remoteStage === "auto" && !isHmi && portalScript) {
+        webView.current?.injectJavaScript(portalScript);
+      }
       if ((remoteStage === "auto" || remoteStage === "login") && isHmi) {
         bridge.attach(webView.current);
         onHmiReached();
@@ -1339,7 +1412,8 @@ var styles4 = StyleSheet4.create({
   header: { paddingHorizontal: 16, paddingBottom: 10 },
   headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   title: { fontSize: 20, fontWeight: "700" },
-  hint: { fontSize: 14, marginTop: 6 }
+  hint: { fontSize: 14, marginTop: 6 },
+  diagnostic: { fontSize: 11, marginTop: 4 }
 });
 
 // src/screens/SettingsScreen.tsx
@@ -1568,12 +1642,19 @@ function Main() {
     </View5>;
 }
 function Home({ connect, navigate }) {
-  const { phase, error, progress } = useHeating();
+  const { phase, error, progress, remoteStage, revealPortal, diagnostics } = useHeating();
   switch (phase) {
     case "ready":
       return <Dashboard navigate={navigate} />;
     case "loading":
-      return <StatusView title={progress || "Lade Daten \u2026"} loading />;
+      return <StatusView title={progress || "Lade Daten \u2026"} loading>
+          {remoteStage === "auto" && <Button
+        title="Anmeldeseite anzeigen"
+        kind="secondary"
+        onPress={() => revealPortal("Du kannst hier zuschauen oder von Hand weitermachen (\u201EWebHmi\u201C \u2192 \u201EWWW\u201C).")}
+      />}
+          <Diagnostics lines={diagnostics} />
+        </StatusView>;
     case "failed":
       return <StatusView title="Keine Verbindung" message={error}>
           <Button title="Erneut versuchen" onPress={connect} />
@@ -1592,8 +1673,19 @@ function Home({ connect, navigate }) {
         </StatusView>;
   }
 }
+function Diagnostics({ lines }) {
+  const theme = useTheme();
+  if (lines.length === 0) return null;
+  return <View5 style={styles6.diagnostics}>
+      {lines.slice(-4).map((line, i) => <Text6 key={i} style={[styles6.diagnosticLine, { color: theme.secondary }]} numberOfLines={3}>
+          {line}
+        </Text6>)}
+    </View5>;
+}
 var styles6 = StyleSheet6.create({
   root: { flex: 1 },
+  diagnostics: { marginTop: 12, gap: 4 },
+  diagnosticLine: { fontSize: 11 },
   header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10 },
   headerSide: { width: 90 },
   headerRight: { alignItems: "flex-end" },

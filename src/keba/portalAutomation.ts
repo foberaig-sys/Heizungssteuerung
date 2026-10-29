@@ -2,7 +2,8 @@
 // 1. Benutzername/Passwort eintragen und „Login“,
 // 2. Anlagen-Gruppe aufklappen und den Eintrag „… WebHmi“ antippen,
 // 3. „WWW“ antippen → der Browser landet auf https://remote.keba.com:<Port> (die HMI).
-// Das Skript läuft in der WebView und meldet seinen Fortschritt per postMessage.
+// Das Skript läuft in der WebView (auch in gleich-originigen iFrames) und meldet seinen Fortschritt
+// per postMessage. Zusätzlich schickt es regelmäßig, was es auf der Seite sieht – für die Diagnose.
 
 export interface PortalCredentials {
   username: string;
@@ -11,10 +12,10 @@ export interface PortalCredentials {
   device: string;
 }
 
-export type PortalStep = 'login' | 'expand' | 'device' | 'www';
+export type PortalStep = 'alive' | 'login' | 'expand' | 'device' | 'www';
 
 export type PortalMessage =
-  | { kebaPortal: true; step: PortalStep }
+  | { kebaPortal: true; step: PortalStep; info?: string }
   | { kebaPortal: true; error: 'loginFailed' | 'timeout'; detail?: string };
 
 export function parsePortalMessage(data: string): PortalMessage | undefined {
@@ -28,6 +29,8 @@ export function parsePortalMessage(data: string): PortalMessage | undefined {
 
 export function portalStepLabel(step: PortalStep | undefined): string {
   switch (step) {
+    case 'alive':
+      return 'Portal geöffnet …';
     case 'login':
       return 'Anmelden bei KEBA …';
     case 'expand':
@@ -39,6 +42,9 @@ export function portalStepLabel(step: PortalStep | undefined): string {
       return 'Verbinde mit KEBA …';
   }
 }
+
+/** Setzt ein Stopp-Signal für die Automatik (z. B. wenn der Nutzer übernimmt). */
+export const STOP_PORTAL_AUTOMATION_SCRIPT = 'window.__kebaPortalStop = true; true;';
 
 export function buildPortalAutomationScript(credentials: PortalCredentials, timeoutSeconds = 60): string {
   const config = JSON.stringify({
@@ -55,7 +61,7 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
   window.__kebaPortal = true;
   var cfg = ${config};
   var started = Date.now();
-  var last = { login: 0, expand: 0, device: 0, www: 0 };
+  var last = { login: 0, expand: 0, device: 0, www: 0, info: 0 };
   var loginAttempts = 0;
   var timer;
 
@@ -66,11 +72,28 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
   function stop() { clearInterval(timer); }
   function since(key, ms) { return Date.now() - last[key] > ms; }
 
+  // Hauptdokument plus alle iFrames, auf die wir zugreifen dürfen (gleicher Ursprung).
+  function docs() {
+    var list = [document];
+    for (var i = 0; i < list.length; i++) {
+      var frames = list[i].querySelectorAll('iframe,frame');
+      for (var j = 0; j < frames.length; j++) {
+        try { if (frames[j].contentDocument && frames[j].contentDocument.body) list.push(frames[j].contentDocument); } catch (e) {}
+      }
+    }
+    return list;
+  }
+  function all(selector) {
+    var out = [];
+    docs().forEach(function (d) { Array.prototype.push.apply(out, d.querySelectorAll(selector)); });
+    return out;
+  }
   // Sichtbar = kein Vorfahre mit display:none / visibility:hidden (jQuery Mobile versteckt alte Seiten so).
   function visible(el) {
+    var view = el.ownerDocument.defaultView || window;
     for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
       if (n.hidden) return false;
-      var s = window.getComputedStyle(n);
+      var s = view.getComputedStyle(n);
       if (s.display === 'none' || s.visibility === 'hidden') return false;
     }
     return true;
@@ -78,42 +101,51 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
   function text(el) { return (el.innerText || el.textContent || el.value || '').replace(/\\s+/g, ' ').trim(); }
   // Das innerste sichtbare Element, dessen Text passt.
   function find(test) {
-    var all = document.body ? document.body.querySelectorAll('*') : [];
     var hit = null;
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+    all('body *').forEach(function (el) {
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') return;
       if (test(text(el).toLowerCase(), el) && visible(el)) {
         if (!hit || hit.contains(el)) hit = el;
       }
-    }
+    });
     return hit;
   }
   function clickable(el) { return el.closest('a,button,li,[onclick],[role=button]') || el; }
   function setValue(input, value) {
-    var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    var view = input.ownerDocument.defaultView || window;
+    var setter = Object.getOwnPropertyDescriptor(view.HTMLInputElement.prototype, 'value').set;
     setter.call(input, value);
-    input.dispatchEvent(new Event('input', { bubbles: true }));
-    input.dispatchEvent(new Event('change', { bubbles: true }));
+    input.dispatchEvent(new view.Event('input', { bubbles: true }));
+    input.dispatchEvent(new view.Event('change', { bubbles: true }));
+  }
+  function describe() {
+    var inputs = all('input').filter(visible).map(function (i) { return i.type || 'text'; });
+    return location.href.slice(0, 80) + ' | Frames: ' + (docs().length - 1) + ' | Felder: ' + (inputs.join(',') || 'keine') +
+      ' | Text: ' + (document.body ? text(document.body).slice(0, 120) : '–');
   }
 
   function step() {
+    if (window.__kebaPortalStop) { stop(); return; }
     if (Date.now() - started > cfg.timeout * 1000) {
       stop();
-      send({ error: 'timeout', detail: (document.body ? text(document.body) : '').slice(0, 300) });
+      send({ error: 'timeout', detail: describe() });
       return;
+    }
+    if (since('info', 5000)) {
+      last.info = Date.now();
+      send({ step: 'alive', info: describe() });
     }
 
     // 1. Login-Formular
-    var password = Array.prototype.filter.call(document.querySelectorAll('input[type=password]'), visible)[0];
+    var password = all('input[type=password]').filter(visible)[0];
     if (password) {
       if (!since('login', 8000)) return;
       if (loginAttempts >= 2) {
         stop();
-        send({ error: 'loginFailed', detail: text(document.body).slice(0, 300) });
+        send({ error: 'loginFailed', detail: describe() });
         return;
       }
-      var fields = Array.prototype.filter.call(document.querySelectorAll('input'), function (i) {
+      var fields = all('input').filter(function (i) {
         var t = (i.getAttribute('type') || 'text').toLowerCase();
         return visible(i) && (t === 'text' || t === 'email');
       });
@@ -123,7 +155,8 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
       loginAttempts++;
       send({ step: 'login' });
       var button = find(function (t, el) {
-        return /^(login|log in|anmelden|sign in)$/.test(t) || (el.tagName === 'INPUT' && /submit|button/i.test(el.type) && /login|anmelden/i.test(el.value));
+        return /^(login|log in|anmelden|sign in)$/.test(t) ||
+          (el.tagName === 'INPUT' && /submit|button/i.test(el.type) && /login|anmelden/i.test(el.value));
       });
       if (button) clickable(button).click();
       else if (password.form) password.form.submit();
@@ -157,8 +190,8 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
 
     // Gruppe zugeklappt → aufklappen (jQuery Mobile „collapsible“)
     if (since('expand', 4000)) {
-      var heads = document.querySelectorAll('.ui-collapsible-collapsed .ui-collapsible-heading-toggle, .ui-collapsible-heading-collapsed a, [data-role=collapsible] > h1, [data-role=collapsible] > h2, [data-role=collapsible] > h3, [data-role=collapsible] > h4');
-      var head = Array.prototype.filter.call(heads, visible)[0];
+      var heads = all('.ui-collapsible-collapsed .ui-collapsible-heading-toggle, .ui-collapsible-heading-collapsed a, [data-role=collapsible] > h1, [data-role=collapsible] > h2, [data-role=collapsible] > h3, [data-role=collapsible] > h4');
+      var head = heads.filter(visible)[0];
       if (head) {
         last.expand = Date.now();
         send({ step: 'expand' });
@@ -167,6 +200,7 @@ export function buildPortalAutomationScript(credentials: PortalCredentials, time
     }
   }
 
+  send({ step: 'alive', info: describe() });
   timer = setInterval(step, 1000);
   step();
 })(); true;`;

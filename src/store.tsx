@@ -24,6 +24,8 @@ interface HeatingContextValue {
   progress: string;
   /** Hinweis über der sichtbaren Portal-Seite. */
   loginNotice?: string;
+  /** Letzte Ereignisse beim Verbindungsaufbau (für die Fehlersuche). */
+  diagnostics: string[];
   /** Fehler, der auftritt, während schon Daten angezeigt werden (z. B. Schreibfehler). */
   transientError?: string;
   writing: boolean;
@@ -38,6 +40,9 @@ interface HeatingContextValue {
   onHmiReached: () => void;
   onHmiLeft: () => void;
   onPortalMessage: (message: PortalMessage) => void;
+  /** Portal-Seite sichtbar machen, ohne sie neu zu laden (Automatik hängt oder Nutzer will sehen). */
+  revealPortal: (notice: string) => void;
+  addDiagnostic: (line: string) => void;
   refresh: () => Promise<void>;
   perform: (action: (client: KebaTransport) => Promise<void>) => Promise<void>;
   disconnect: () => void;
@@ -74,6 +79,12 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
   const [remoteStage, setRemoteStage] = useState<RemoteStage>('idle');
   const [remoteSession, setRemoteSession] = useState(0);
   const [portalScript, setPortalScript] = useState<string>();
+  const [diagnostics, setDiagnostics] = useState<string[]>([]);
+
+  const addDiagnostic = useCallback((line: string) => {
+    const time = new Date().toLocaleTimeString('de-DE');
+    setDiagnostics((d) => [...d.slice(-7), `${time} ${line}`]);
+  }, []);
 
   const fail = useCallback((message: string) => {
     setError(message);
@@ -85,6 +96,7 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
     (settings: Settings, notice?: string) => {
       bridge.reset();
       client.current = null;
+      setDiagnostics([]);
       setRemoteSession((n) => n + 1);
       if (hasPortalCredentials(settings) && !notice) {
         lastAutoConnect.current = Date.now();
@@ -205,25 +217,32 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
     handleError(new KebaError('sessionExpired', 'Die Sitzung ist abgelaufen.'));
   }, [bridge, handleError]);
 
+  const revealPortal = useCallback((notice: string) => {
+    setLoginNotice(notice);
+    setRemoteStage((stage) => (stage === 'auto' ? 'login' : stage));
+  }, []);
+
   const onPortalMessage = useCallback(
     (message: PortalMessage) => {
       if ('step' in message) {
-        setProgress(portalStepLabel(message.step));
+        if (message.step === 'alive') {
+          if (message.info) addDiagnostic(`Seite: ${message.info}`);
+          setProgress((p) => (p === portalStepLabel(undefined) ? portalStepLabel('alive') : p));
+        } else {
+          addDiagnostic(`Schritt: ${message.step}`);
+          setProgress(portalStepLabel(message.step));
+        }
         return;
       }
-      const settings = settingsRef.current;
+      addDiagnostic(`Abbruch: ${message.error} ${message.detail ?? ''}`);
       if (message.error === 'loginFailed') {
-        setRemoteStage('idle');
-        fail('Anmeldung bei remote.keba.com fehlgeschlagen. Bitte Benutzername und Passwort in den Einstellungen prüfen.');
-      } else if (settings) {
+        revealPortal('Anmeldung fehlgeschlagen – bitte Benutzername und Passwort in den Einstellungen prüfen oder hier von Hand anmelden.');
+      } else {
         // Das Portal sieht anders aus als erwartet → Seite zeigen, damit man es von Hand machen kann.
-        startRemote(
-          settings,
-          'Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand „WebHmi“ → „WWW“ antippen.',
-        );
+        revealPortal('Die automatische Anmeldung hat nicht geklappt. Bitte einmal von Hand „WebHmi“ → „WWW“ antippen.');
       }
     },
-    [fail, startRemote],
+    [addDiagnostic, revealPortal],
   );
 
   const perform = useCallback(
@@ -263,6 +282,7 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       error,
       progress,
       loginNotice,
+      diagnostics,
       transientError,
       writing,
       remoteStage,
@@ -274,14 +294,16 @@ export function HeatingProvider({ children }: { children: ReactNode }) {
       onHmiReached,
       onHmiLeft,
       onPortalMessage,
+      revealPortal,
+      addDiagnostic,
       refresh,
       perform,
       disconnect,
       clearTransientError,
     }),
-    [phase, snapshot, error, progress, loginNotice, transientError, writing, remoteStage, remoteSession,
-      portalScript, bridge, connect, cancelRemoteLogin, onHmiReached, onHmiLeft, onPortalMessage, refresh,
-      perform, disconnect, clearTransientError],
+    [phase, snapshot, error, progress, loginNotice, diagnostics, transientError, writing, remoteStage,
+      remoteSession, portalScript, bridge, connect, cancelRemoteLogin, onHmiReached, onHmiLeft, onPortalMessage,
+      revealPortal, addDiagnostic, refresh, perform, disconnect, clearTransientError],
   );
 
   return <HeatingContext.Provider value={value}>{children}</HeatingContext.Provider>;

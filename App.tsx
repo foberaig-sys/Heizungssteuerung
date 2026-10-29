@@ -141,13 +141,24 @@ function Main() {
 }
 
 function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route) => void }) {
-  const { phase, error, progress } = useHeating();
+  const { phase, error, progress, remoteStage, revealPortal, diagnostics } = useHeating();
 
   switch (phase) {
     case 'ready':
       return <Dashboard navigate={navigate} />;
     case 'loading':
-      return <StatusView title={progress || 'Lade Daten …'} loading />;
+      return (
+        <StatusView title={progress || 'Lade Daten …'} loading>
+          {remoteStage === 'auto' && (
+            <Button
+              title="Anmeldeseite anzeigen"
+              kind="secondary"
+              onPress={() => revealPortal('Du kannst hier zuschauen oder von Hand weitermachen („WebHmi“ → „WWW“).')}
+            />
+          )}
+          <Diagnostics lines={diagnostics} />
+        </StatusView>
+      );
     case 'failed':
       return (
         <StatusView title="Keine Verbindung" message={error}>
@@ -173,8 +184,25 @@ function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route)
   }
 }
 
+/** Kleine Liste der letzten Verbindungsereignisse – hilft beim Eingrenzen, falls etwas hängt. */
+function Diagnostics({ lines }: { lines: string[] }) {
+  const theme = useTheme();
+  if (lines.length === 0) return null;
+  return (
+    <View style={styles.diagnostics}>
+      {lines.slice(-4).map((line, i) => (
+        <Text key={i} style={[styles.diagnosticLine, { color: theme.secondary }]} numberOfLines={3}>
+          {line}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   root: { flex: 1 },
+  diagnostics: { marginTop: 12, gap: 4 },
+  diagnosticLine: { fontSize: 11 },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10 },
   headerSide: { width: 90 },
   headerRight: { alignItems: 'flex-end' },

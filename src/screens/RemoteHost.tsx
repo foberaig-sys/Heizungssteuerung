@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView, WebViewProps } from 'react-native-webview';
 
 import { REMOTE_PORTAL_URL, hmiBaseUrl } from '../keba/bridge';
-import { parsePortalMessage } from '../keba/portalAutomation';
+import { STOP_PORTAL_AUTOMATION_SCRIPT, parsePortalMessage } from '../keba/portalAutomation';
 import { useHeating } from '../store';
 import { Button } from '../ui/components';
 import { useTheme } from '../ui/theme';
@@ -29,6 +29,9 @@ export function RemoteHost() {
     onHmiLeft,
     onPortalMessage,
     cancelRemoteLogin,
+    revealPortal,
+    addDiagnostic,
+    diagnostics,
   } = useHeating();
   const webView = useRef<WebView>(null);
   const theme = useTheme();
@@ -38,6 +41,21 @@ export function RemoteHost() {
   useEffect(() => {
     bridge.attach(remoteStage === 'connected' ? webView.current : null);
   }, [bridge, remoteStage]);
+
+  // Wächter: Hängt die Automatik, die Seite zeigen statt endlos „Verbinde …“.
+  useEffect(() => {
+    if (remoteStage !== 'auto') return;
+    const timer = setTimeout(() => {
+      addDiagnostic('Zeitgrenze erreicht (45 s)');
+      revealPortal('Die automatische Anmeldung hängt. Bitte von Hand anmelden und „WebHmi“ → „WWW“ antippen.');
+    }, 45000);
+    return () => clearTimeout(timer);
+  }, [remoteStage, remoteSession, revealPortal, addDiagnostic]);
+
+  // Übernimmt der Nutzer, darf die Automatik nicht mehr dazwischenklicken.
+  useEffect(() => {
+    if (remoteStage === 'login') webView.current?.injectJavaScript(STOP_PORTAL_AUTOMATION_SCRIPT);
+  }, [remoteStage]);
 
   if (remoteStage === 'idle') return null;
 
@@ -56,6 +74,12 @@ export function RemoteHost() {
             {loginNotice ??
               'Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App künftig selbst an. Jetzt: anmelden, Anlage aufklappen, „WebHmi“ und dann „WWW“ antippen.'}
           </Text>
+          {loginNotice !== undefined &&
+            diagnostics.slice(-3).map((line, i) => (
+              <Text key={i} style={[styles.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
+                {line}
+              </Text>
+            ))}
         </View>
       )}
       <KebaWebView
@@ -76,8 +100,16 @@ export function RemoteHost() {
           const portal = parsePortalMessage(data);
           if (portal) onPortalMessage(portal);
         }}
+        onError={(event) => addDiagnostic(`Ladefehler: ${event.nativeEvent.description} (${event.nativeEvent.url})`)}
+        onHttpError={(event) => addDiagnostic(`HTTP ${event.nativeEvent.statusCode}: ${event.nativeEvent.url}`)}
         onLoadEnd={(event) => {
-          const isHmi = hmiBaseUrl(event.nativeEvent.url) !== undefined;
+          const url = event.nativeEvent.url;
+          addDiagnostic(`Geladen: ${url}`);
+          const isHmi = hmiBaseUrl(url) !== undefined;
+          if (remoteStage === 'auto' && !isHmi && portalScript) {
+            // Zusätzlich zu injectedJavaScript: manche Seiten/Versionen führen das Prop nicht aus.
+            webView.current?.injectJavaScript(portalScript);
+          }
           if ((remoteStage === 'auto' || remoteStage === 'login') && isHmi) {
             bridge.attach(webView.current);
             onHmiReached();
@@ -98,4 +130,5 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { fontSize: 20, fontWeight: '700' },
   hint: { fontSize: 14, marginTop: 6 },
+  diagnostic: { fontSize: 11, marginTop: 4 },
 });

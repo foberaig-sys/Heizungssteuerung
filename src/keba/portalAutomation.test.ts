@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { JSDOM } from 'jsdom';
 
-import { PortalMessage, buildPortalAutomationScript, parsePortalMessage } from './portalAutomation';
+import {
+  PortalMessage,
+  STOP_PORTAL_AUTOMATION_SCRIPT,
+  buildPortalAutomationScript,
+  parsePortalMessage,
+} from './portalAutomation';
 
 /** Nachbau des Secomea-Portals: Login → Geräteliste (zugeklappt) → Geräteseite mit „WWW“. */
 function fakePortal() {
@@ -105,7 +110,7 @@ test('meldet sich an, öffnet die Anlage und tippt auf WWW', () => {
   assert.deepEqual(portal.events.slice(0, 4), ['login', 'expand', 'device:hmi', 'www']);
   assert.ok(!portal.events.includes('device:dev') && !portal.events.includes('device:full'), 'nur der WebHmi-Eintrag');
   assert.deepEqual(
-    portal.messages.map((m) => ('step' in m ? m.step : m.error)).slice(0, 4),
+    portal.messages.map((m) => ('step' in m ? m.step : m.error)).filter((s) => s !== 'alive').slice(0, 4),
     ['login', 'expand', 'device', 'www'],
   );
 });
@@ -133,4 +138,36 @@ test('Sonderzeichen im Passwort bleiben erhalten', () => {
   portal.run(buildPortalAutomationScript({ username: 'u', password, device: 'WebHmi' }));
   portal.advance(1);
   assert.equal(portal.credentials()?.pwd, password);
+});
+
+test('meldet sofort ein Lebenszeichen und findet Login-Felder in einem iFrame', () => {
+  const dom = new JSDOM('<body><iframe id="f"></iframe></body>', {
+    runScripts: 'outside-only',
+    url: 'https://remote.keba.com/app/',
+  });
+  const w = dom.window;
+  const frameDoc = (w.document.getElementById('f') as HTMLIFrameElement).contentDocument!;
+  frameDoc.body.innerHTML = '<input type="text" id="u"><input type="password" id="p"><button id="b">Login</button>';
+  let clicked = false;
+  frameDoc.getElementById('b')!.addEventListener('click', () => (clicked = true));
+  const messages: PortalMessage[] = [];
+  (w as unknown as { ReactNativeWebView: unknown }).ReactNativeWebView = {
+    postMessage: (data: string) => messages.push(parsePortalMessage(data)!),
+  };
+  (w as unknown as { setInterval: () => number }).setInterval = () => 1;
+  w.eval(buildPortalAutomationScript({ username: 'oberaigner', password: 'pw', device: 'WebHmi' }));
+
+  assert.equal('step' in messages[0] && messages[0].step, 'alive');
+  assert.match(('info' in messages[0] && messages[0].info) || '', /Frames: 1/);
+  assert.equal((frameDoc.getElementById('u') as HTMLInputElement).value, 'oberaigner');
+  assert.equal((frameDoc.getElementById('p') as HTMLInputElement).value, 'pw');
+  assert.ok(clicked);
+});
+
+test('Stopp-Signal beendet die Automatik', () => {
+  const portal = fakePortal();
+  portal.run(buildPortalAutomationScript({ username: 'u', password: 'falsch', device: 'WebHmi' }));
+  portal.run(STOP_PORTAL_AUTOMATION_SCRIPT);
+  portal.advance(2);
+  assert.equal(portal.running(), false);
 });
