@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, TextInputProps, View } from 'react-native';
 
 import { isModbusAvailable } from '../modbus/nativeSocket';
 import { ConnectionMode, Settings, hasPortalCredentials, saveSettings } from '../settings';
 import { useHeating } from '../store';
 import { Button, Card, SectionTitle } from '../ui/components';
-import { useTheme } from '../ui/theme';
+import { haptic } from '../ui/haptics';
+import { Screen } from '../ui/Screen';
+import { type, useTheme } from '../ui/theme';
 
 export function SettingsScreen({
   settings,
@@ -31,20 +33,21 @@ export function SettingsScreen({
   const canConnect = draft.mode === 'remote' || draft.modbusAddress.trim() !== '';
 
   return (
-    <ScrollView
-      style={{ backgroundColor: theme.background }}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <Screen title="Einstellungen">
       <SectionTitle>Verbindung</SectionTitle>
-      <View style={[styles.segment, { backgroundColor: theme.pressed }]}>
+      <View style={[styles.segment, { backgroundColor: theme.fill }]} accessibilityRole="tablist">
         {(['modbus', 'remote'] as ConnectionMode[]).map((mode) => (
           <Pressable
             key={mode}
-            onPress={() => update({ mode })}
-            style={[styles.segmentItem, draft.mode === mode && { backgroundColor: theme.card }]}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: draft.mode === mode }}
+            onPress={() => {
+              if (draft.mode !== mode) haptic.select();
+              update({ mode });
+            }}
+            style={[styles.segmentItem, draft.mode === mode && [styles.segmentActive, { backgroundColor: theme.card }]]}
           >
-            <Text style={[styles.segmentText, { color: theme.text }]}>
+            <Text style={[type.subhead, styles.segmentText, { color: theme.text }]}>
               {MODE_LABELS[mode]}
             </Text>
           </Pressable>
@@ -124,7 +127,7 @@ export function SettingsScreen({
       {phase !== 'notConnected' && (
         <Button title="Verbindung trennen" kind="danger" style={styles.action} onPress={disconnect} />
       )}
-    </ScrollView>
+    </Screen>
   );
 }
 
@@ -150,8 +153,8 @@ function Field({ last, ...props }: TextInputProps & { last?: boolean }) {
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 40 },
   segment: { flexDirection: 'row', borderRadius: 10, padding: 3 },
+  segmentActive: { shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
   segmentItem: { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: 'center' },
   segmentText: { fontSize: 15, fontWeight: '600' },
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },

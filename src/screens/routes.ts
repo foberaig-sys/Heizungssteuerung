@@ -1,5 +1,4 @@
-export type Route =
-  | { name: 'dashboard' }
-  | { name: 'circuit'; index: number }
-  | { name: 'hotWater'; index: number }
-  | { name: 'settings' };
+export type TabKey = 'home' | 'modes' | 'data' | 'settings';
+
+/** Unterseiten der Startseite (Temperaturen einstellen). */
+export type Route = { name: 'circuit'; index: number } | { name: 'hotWater'; index: number };

@@ -9,6 +9,10 @@
 //   expo-secure-store@~58.0.2
 //   expo-status-bar@~58.0.4
 //   react-native-tcp-socket@^6.4.3
+//   expo-symbols@~58.0.4
+//   expo-blur@~58.0.5
+//   expo-haptics@~58.0.7
+//   @expo/vector-icons@^15.1.1
 
 var __defProp = Object.defineProperty;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
@@ -16,12 +20,15 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
 
 // App.tsx
 import { StatusBar } from "expo-status-bar";
-import { useEffect as useEffect3, useState as useState5 } from "react";
-import { Alert, AppState, BackHandler, Pressable as Pressable4, StyleSheet as StyleSheet6, Text as Text6, View as View5 } from "react-native";
-import { SafeAreaProvider, useSafeAreaInsets as useSafeAreaInsets2 } from "react-native-safe-area-context";
+import { useEffect as useEffect4, useState as useState6 } from "react";
+import { Alert, AppState, BackHandler, StyleSheet as StyleSheet10, Text as Text10, View as View7 } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
-// src/screens/DetailScreens.tsx
-import { ScrollView, StyleSheet as StyleSheet2, Text as Text2 } from "react-native";
+// src/screens/DataScreen.tsx
+import { StyleSheet as StyleSheet4, Text as Text4 } from "react-native";
+
+// src/store.tsx
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 // src/keba/client.ts
 var KebaError = class extends Error {
@@ -137,166 +144,6 @@ function formatNumber(value) {
   const rounded = Math.round(value * 100) / 100;
   return String(rounded);
 }
-
-// src/keba/variables.ts
-var P = "APPL.CtrlAppl.sParam";
-var KebaVar = {
-  outdoorTemperature: `${P}.outdoorTemp.values.actValue`,
-  systemOperatingMode: `${P}.param.operatingMode`,
-  numberOfHeatingCircuits: `${P}.options.systemNumberOfHeatingCircuits`,
-  numberOfHotWaterTanks: `${P}.options.systemNumberOfHotWaterTanks`,
-  heatCircuit: {
-    name: (i) => `${P}.heatCircuit[${i}].param.name`,
-    hasRoomTemperature: (i) => `${P}.options.heatCircuit[${i}].hasRoomTemp`,
-    hasRoomHumidity: (i) => `${P}.options.heatCircuit[${i}].hasRoomHumidity`,
-    roomTemperature: (i) => `${P}.heatCircuit[${i}].tempRoom.values.actValue`,
-    roomHumidity: (i) => `${P}.heatCircuit[${i}].humidityRoom.values.actValue`,
-    /** Aktueller Sollwert inkl. Korrektur (große Zahl auf dem HMI-Startbildschirm). */
-    setValue: (i) => `${P}.heatCircuit[${i}].values.setValue`,
-    flowSetTemperature: (i) => `${P}.heatCircuit[${i}].values.flowSetTemp`,
-    /** Korrektur, die die Pfeiltasten der HMI in 0,5-K-Schritten verändern. */
-    offset: (i) => `${P}.heatCircuit[${i}].param.offsetRoomTemp`,
-    normalSetTemperature: (i) => `${P}.heatCircuit[${i}].param.normalSetTemp`,
-    reducedSetTemperature: (i) => `${P}.heatCircuit[${i}].param.reducedSetTemp`,
-    operatingMode: (i) => `${P}.heatCircuit[${i}].param.operatingMode`,
-    heatRequest: (i) => `${P}.heatCircuit[${i}].values.heatRequest`
-  },
-  heatPump: {
-    flowTemperature: (i) => `${P}.heatpump[${i}].TempHeatFlow.values.actValue`,
-    returnTemperature: (i) => `${P}.heatpump[${i}].TempHeatReflux.values.actValue`,
-    sourceInTemperature: (i) => `${P}.heatpump[${i}].TempSourceIn.values.actValue`,
-    sourceOutTemperature: (i) => `${P}.heatpump[${i}].TempSourceOut.values.actValue`
-  },
-  bufferTank: {
-    topTemperature: (i) => `${P}.bufferTank[${i}].topTemp.values.actValue`,
-    midTemperature: (i) => `${P}.bufferTank[${i}].midTemp.values.actValue`
-  },
-  hotWaterTank: {
-    name: (i) => `${P}.hotWaterTank[${i}].param.name`,
-    temperature: (i) => `${P}.hotWaterTank[${i}].topTemp.values.actValue`,
-    setTemperature: (i) => `${P}.hotWaterTank[${i}].param.normalSetTempMax.value`,
-    operatingMode: (i) => `${P}.hotWaterTank[${i}].param.operatingMode`,
-    heatRequest: (i) => `${P}.hotWaterTank[${i}].values.heatRequestTop`
-  }
-};
-var allHeatCircuitVars = (i) => Object.values(KebaVar.heatCircuit).map((f) => f(i));
-var allHotWaterVars = (i) => Object.values(KebaVar.hotWaterTank).map((f) => f(i));
-var allHeatPumpVars = (i) => [
-  ...Object.values(KebaVar.heatPump).map((f) => f(i)),
-  ...Object.values(KebaVar.bufferTank).map((f) => f(i))
-];
-var SystemModes = [
-  { value: -1, label: "Inbetriebnahme" },
-  { value: 0, label: "Standby" },
-  { value: 1, label: "Nur Warmwasser" },
-  { value: 2, label: "Automatik heizen" },
-  { value: 3, label: "K\xFChlen" },
-  { value: 4, label: "Automatik Heizen/K\xFChlen" }
-];
-var selectableSystemModes = [0, 1, 2];
-var HeatCircuitModes = [
-  { value: 0, label: "Aus" },
-  { value: 1, label: "Automatik (Zeitprogramm)" },
-  { value: 2, label: "Dauernd Komfort" },
-  { value: 3, label: "Dauernd Absenkung" },
-  { value: 4, label: "Urlaub" },
-  { value: 5, label: "Party" },
-  { value: 8, label: "Extern" },
-  { value: 9, label: "Raumregelung" }
-];
-var selectableHeatCircuitModes = [0, 1, 2, 3];
-var HotWaterModes = [
-  { value: 0, label: "Aus" },
-  { value: 1, label: "Automatik (Zeitprogramm)" },
-  { value: 2, label: "Dauernd Ein" },
-  { value: 3, label: "Aufheizen" }
-];
-var selectableHotWaterModes = [0, 1, 2, 3];
-function modeLabel(modes, value) {
-  if (value === void 0) return "\u2013";
-  return modes.find((m) => m.value === value)?.label ?? `Modus ${value}`;
-}
-
-// src/keba/service.ts
-async function loadSnapshot(client, now = /* @__PURE__ */ new Date()) {
-  const counts = await client.read([KebaVar.numberOfHeatingCircuits, KebaVar.numberOfHotWaterTanks]);
-  const circuitCount = clamp(toInt(counts[KebaVar.numberOfHeatingCircuits]) ?? 1, 8);
-  const tankCount = clamp(toInt(counts[KebaVar.numberOfHotWaterTanks]) ?? 1, 4);
-  const names = [KebaVar.outdoorTemperature, KebaVar.systemOperatingMode];
-  for (let i = 0; i < circuitCount; i++) names.push(...allHeatCircuitVars(i));
-  for (let i = 0; i < tankCount; i++) names.push(...allHotWaterVars(i));
-  names.push(...allHeatPumpVars(0));
-  const v = await client.read(names, true);
-  const HC = KebaVar.heatCircuit;
-  const HW = KebaVar.hotWaterTank;
-  const heatCircuits = range(circuitCount).map((i) => {
-    const hasRoomTemp = toBool(v[HC.hasRoomTemperature(i)]) ?? true;
-    const hasHumidity = toBool(v[HC.hasRoomHumidity(i)]) ?? true;
-    return {
-      index: i,
-      name: nonEmpty(v[HC.name(i)]?.value) ?? `Heizkreis ${i + 1}`,
-      roomTemperature: hasRoomTemp ? toNumber(v[HC.roomTemperature(i)]) : void 0,
-      roomHumidity: hasHumidity ? toNumber(v[HC.roomHumidity(i)]) : void 0,
-      currentSetTemperature: toNumber(v[HC.setValue(i)]),
-      flowSetTemperature: toNumber(v[HC.flowSetTemperature(i)]),
-      offset: setpoint(v[HC.offset(i)]),
-      normalSetTemperature: setpoint(v[HC.normalSetTemperature(i)]),
-      reducedSetTemperature: setpoint(v[HC.reducedSetTemperature(i)]),
-      operatingMode: toInt(v[HC.operatingMode(i)]),
-      heatRequest: toBool(v[HC.heatRequest(i)])
-    };
-  });
-  const hotWaterTanks = range(tankCount).map((i) => ({
-    index: i,
-    name: nonEmpty(v[HW.name(i)]?.value) ?? (tankCount === 1 ? "Warmwasser" : `Warmwasser ${i + 1}`),
-    temperature: toNumber(v[HW.temperature(i)]),
-    setTemperature: setpoint(v[HW.setTemperature(i)]),
-    operatingMode: toInt(v[HW.operatingMode(i)]),
-    heatRequest: toBool(v[HW.heatRequest(i)])
-  }));
-  const HP = KebaVar.heatPump;
-  const BT = KebaVar.bufferTank;
-  const heatPump = {
-    flowTemperature: toNumber(v[HP.flowTemperature(0)]),
-    returnTemperature: toNumber(v[HP.returnTemperature(0)]),
-    sourceInTemperature: toNumber(v[HP.sourceInTemperature(0)]),
-    sourceOutTemperature: toNumber(v[HP.sourceOutTemperature(0)]),
-    bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
-    bufferMidTemperature: toNumber(v[BT.midTemperature(0)])
-  };
-  return {
-    outdoorTemperature: toNumber(v[KebaVar.outdoorTemperature]),
-    heatPump: Object.values(heatPump).some((x) => x !== void 0) ? heatPump : void 0,
-    systemOperatingMode: toInt(v[KebaVar.systemOperatingMode]),
-    heatCircuits,
-    hotWaterTanks,
-    fetchedAt: now
-  };
-}
-var writeNumber = (client, name, value) => client.write([{ name, value: formatNumber(value) }]);
-var commands = {
-  setSystemMode: (c, mode) => writeNumber(c, KebaVar.systemOperatingMode, mode),
-  /** Entspricht den Pfeiltasten auf dem HMI-Startbildschirm. */
-  setOffset: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.offset(circuit), value),
-  setNormalTemperature: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.normalSetTemperature(circuit), value),
-  setReducedTemperature: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.reducedSetTemperature(circuit), value),
-  setHeatCircuitMode: (c, circuit, mode) => writeNumber(c, KebaVar.heatCircuit.operatingMode(circuit), mode),
-  setHotWaterTemperature: (c, tank, value) => writeNumber(c, KebaVar.hotWaterTank.setTemperature(tank), value),
-  setHotWaterMode: (c, tank, mode) => writeNumber(c, KebaVar.hotWaterTank.operatingMode(tank), mode)
-};
-var clamp = (value, max) => Math.min(Math.max(value, 0), max);
-var range = (n) => Array.from({ length: n }, (_, i) => i);
-function nonEmpty(s) {
-  const t = s?.trim();
-  return t ? t : void 0;
-}
-function setpoint(v) {
-  const value = toNumber(v);
-  return value === void 0 ? void 0 : { value, range: toRange(v?.attributes) };
-}
-
-// src/store.tsx
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from "react";
 
 // src/keba/bridge.ts
 var REMOTE_PORTAL_URL = "https://remote.keba.com/app";
@@ -563,6 +410,132 @@ function buildPortalAutomationScript(credentials, timeoutSeconds = 75) {
   timer = setInterval(step, 1000);
   step();
 })(); true;`;
+}
+
+// src/keba/variables.ts
+var P = "APPL.CtrlAppl.sParam";
+var KebaVar = {
+  outdoorTemperature: `${P}.outdoorTemp.values.actValue`,
+  systemOperatingMode: `${P}.param.operatingMode`,
+  numberOfHeatingCircuits: `${P}.options.systemNumberOfHeatingCircuits`,
+  numberOfHotWaterTanks: `${P}.options.systemNumberOfHotWaterTanks`,
+  heatCircuit: {
+    name: (i) => `${P}.heatCircuit[${i}].param.name`,
+    hasRoomTemperature: (i) => `${P}.options.heatCircuit[${i}].hasRoomTemp`,
+    hasRoomHumidity: (i) => `${P}.options.heatCircuit[${i}].hasRoomHumidity`,
+    roomTemperature: (i) => `${P}.heatCircuit[${i}].tempRoom.values.actValue`,
+    roomHumidity: (i) => `${P}.heatCircuit[${i}].humidityRoom.values.actValue`,
+    /** Aktueller Sollwert inkl. Korrektur (große Zahl auf dem HMI-Startbildschirm). */
+    setValue: (i) => `${P}.heatCircuit[${i}].values.setValue`,
+    flowSetTemperature: (i) => `${P}.heatCircuit[${i}].values.flowSetTemp`,
+    /** Korrektur, die die Pfeiltasten der HMI in 0,5-K-Schritten verändern. */
+    offset: (i) => `${P}.heatCircuit[${i}].param.offsetRoomTemp`,
+    normalSetTemperature: (i) => `${P}.heatCircuit[${i}].param.normalSetTemp`,
+    reducedSetTemperature: (i) => `${P}.heatCircuit[${i}].param.reducedSetTemp`,
+    operatingMode: (i) => `${P}.heatCircuit[${i}].param.operatingMode`,
+    heatRequest: (i) => `${P}.heatCircuit[${i}].values.heatRequest`
+  },
+  heatPump: {
+    flowTemperature: (i) => `${P}.heatpump[${i}].TempHeatFlow.values.actValue`,
+    returnTemperature: (i) => `${P}.heatpump[${i}].TempHeatReflux.values.actValue`,
+    sourceInTemperature: (i) => `${P}.heatpump[${i}].TempSourceIn.values.actValue`,
+    sourceOutTemperature: (i) => `${P}.heatpump[${i}].TempSourceOut.values.actValue`
+  },
+  bufferTank: {
+    topTemperature: (i) => `${P}.bufferTank[${i}].topTemp.values.actValue`,
+    midTemperature: (i) => `${P}.bufferTank[${i}].midTemp.values.actValue`
+  },
+  hotWaterTank: {
+    name: (i) => `${P}.hotWaterTank[${i}].param.name`,
+    temperature: (i) => `${P}.hotWaterTank[${i}].topTemp.values.actValue`,
+    setTemperature: (i) => `${P}.hotWaterTank[${i}].param.normalSetTempMax.value`,
+    operatingMode: (i) => `${P}.hotWaterTank[${i}].param.operatingMode`,
+    heatRequest: (i) => `${P}.hotWaterTank[${i}].values.heatRequestTop`
+  }
+};
+var allHeatCircuitVars = (i) => Object.values(KebaVar.heatCircuit).map((f) => f(i));
+var allHotWaterVars = (i) => Object.values(KebaVar.hotWaterTank).map((f) => f(i));
+var allHeatPumpVars = (i) => [
+  ...Object.values(KebaVar.heatPump).map((f) => f(i)),
+  ...Object.values(KebaVar.bufferTank).map((f) => f(i))
+];
+
+// src/keba/service.ts
+async function loadSnapshot(client, now = /* @__PURE__ */ new Date()) {
+  const counts = await client.read([KebaVar.numberOfHeatingCircuits, KebaVar.numberOfHotWaterTanks]);
+  const circuitCount = clamp(toInt(counts[KebaVar.numberOfHeatingCircuits]) ?? 1, 8);
+  const tankCount = clamp(toInt(counts[KebaVar.numberOfHotWaterTanks]) ?? 1, 4);
+  const names = [KebaVar.outdoorTemperature, KebaVar.systemOperatingMode];
+  for (let i = 0; i < circuitCount; i++) names.push(...allHeatCircuitVars(i));
+  for (let i = 0; i < tankCount; i++) names.push(...allHotWaterVars(i));
+  names.push(...allHeatPumpVars(0));
+  const v = await client.read(names, true);
+  const HC = KebaVar.heatCircuit;
+  const HW = KebaVar.hotWaterTank;
+  const heatCircuits = range(circuitCount).map((i) => {
+    const hasRoomTemp = toBool(v[HC.hasRoomTemperature(i)]) ?? true;
+    const hasHumidity = toBool(v[HC.hasRoomHumidity(i)]) ?? true;
+    return {
+      index: i,
+      name: nonEmpty(v[HC.name(i)]?.value) ?? `Heizkreis ${i + 1}`,
+      roomTemperature: hasRoomTemp ? toNumber(v[HC.roomTemperature(i)]) : void 0,
+      roomHumidity: hasHumidity ? toNumber(v[HC.roomHumidity(i)]) : void 0,
+      currentSetTemperature: toNumber(v[HC.setValue(i)]),
+      flowSetTemperature: toNumber(v[HC.flowSetTemperature(i)]),
+      offset: setpoint(v[HC.offset(i)]),
+      normalSetTemperature: setpoint(v[HC.normalSetTemperature(i)]),
+      reducedSetTemperature: setpoint(v[HC.reducedSetTemperature(i)]),
+      operatingMode: toInt(v[HC.operatingMode(i)]),
+      heatRequest: toBool(v[HC.heatRequest(i)])
+    };
+  });
+  const hotWaterTanks = range(tankCount).map((i) => ({
+    index: i,
+    name: nonEmpty(v[HW.name(i)]?.value) ?? (tankCount === 1 ? "Warmwasser" : `Warmwasser ${i + 1}`),
+    temperature: toNumber(v[HW.temperature(i)]),
+    setTemperature: setpoint(v[HW.setTemperature(i)]),
+    operatingMode: toInt(v[HW.operatingMode(i)]),
+    heatRequest: toBool(v[HW.heatRequest(i)])
+  }));
+  const HP = KebaVar.heatPump;
+  const BT = KebaVar.bufferTank;
+  const heatPump = {
+    flowTemperature: toNumber(v[HP.flowTemperature(0)]),
+    returnTemperature: toNumber(v[HP.returnTemperature(0)]),
+    sourceInTemperature: toNumber(v[HP.sourceInTemperature(0)]),
+    sourceOutTemperature: toNumber(v[HP.sourceOutTemperature(0)]),
+    bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
+    bufferMidTemperature: toNumber(v[BT.midTemperature(0)])
+  };
+  return {
+    outdoorTemperature: toNumber(v[KebaVar.outdoorTemperature]),
+    heatPump: Object.values(heatPump).some((x) => x !== void 0) ? heatPump : void 0,
+    systemOperatingMode: toInt(v[KebaVar.systemOperatingMode]),
+    heatCircuits,
+    hotWaterTanks,
+    fetchedAt: now
+  };
+}
+var writeNumber = (client, name, value) => client.write([{ name, value: formatNumber(value) }]);
+var commands = {
+  setSystemMode: (c, mode) => writeNumber(c, KebaVar.systemOperatingMode, mode),
+  /** Entspricht den Pfeiltasten auf dem HMI-Startbildschirm. */
+  setOffset: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.offset(circuit), value),
+  setNormalTemperature: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.normalSetTemperature(circuit), value),
+  setReducedTemperature: (c, circuit, value) => writeNumber(c, KebaVar.heatCircuit.reducedSetTemperature(circuit), value),
+  setHeatCircuitMode: (c, circuit, mode) => writeNumber(c, KebaVar.heatCircuit.operatingMode(circuit), mode),
+  setHotWaterTemperature: (c, tank, value) => writeNumber(c, KebaVar.hotWaterTank.setTemperature(tank), value),
+  setHotWaterMode: (c, tank, mode) => writeNumber(c, KebaVar.hotWaterTank.operatingMode(tank), mode)
+};
+var clamp = (value, max) => Math.min(Math.max(value, 0), max);
+var range = (n) => Array.from({ length: n }, (_, i) => i);
+function nonEmpty(s) {
+  const t = s?.trim();
+  return t ? t : void 0;
+}
+function setpoint(v) {
+  const value = toNumber(v);
+  return value === void 0 ? void 0 : { value, range: toRange(v?.attributes) };
 }
 
 // src/modbus/modbusClient.ts
@@ -1201,32 +1174,102 @@ function HeatingProvider({ children }) {
 import { useState as useState2 } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 
+// src/ui/haptics.ts
+import * as Haptics from "expo-haptics";
+import { Platform } from "react-native";
+var enabled = Platform.OS === "ios" || Platform.OS === "android";
+function safely(run) {
+  if (!enabled) return;
+  run().catch(() => void 0);
+}
+var haptic = {
+  /** Pfeiltaste, Stepper. */
+  tap: () => safely(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)),
+  /** Auswahl einer Betriebsart. */
+  select: () => safely(() => Haptics.selectionAsync()),
+  success: () => safely(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)),
+  error: () => safely(() => Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error))
+};
+
+// src/ui/Icon.tsx
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { SymbolView } from "expo-symbols";
+import { Platform as Platform2 } from "react-native";
+var icons = {
+  home: { sf: "house.fill", fallback: "home" },
+  modes: { sf: "slider.horizontal.3", fallback: "options" },
+  data: { sf: "chart.bar.xaxis", fallback: "stats-chart" },
+  settings: { sf: "gearshape.fill", fallback: "settings" },
+  power: { sf: "power", fallback: "power" },
+  clock: { sf: "clock", fallback: "time-outline" },
+  sun: { sf: "sun.max.fill", fallback: "sunny" },
+  moon: { sf: "moon.fill", fallback: "moon" },
+  drop: { sf: "drop.fill", fallback: "water" },
+  flame: { sf: "flame.fill", fallback: "flame" },
+  heat: { sf: "heat.waves", fallback: "flame-outline" },
+  up: { sf: "chevron.up", fallback: "chevron-up" },
+  minus: { sf: "minus", fallback: "remove" },
+  plus: { sf: "plus", fallback: "add" },
+  down: { sf: "chevron.down", fallback: "chevron-down" },
+  forward: { sf: "chevron.right", fallback: "chevron-forward" },
+  back: { sf: "chevron.left", fallback: "chevron-back" },
+  check: { sf: "checkmark", fallback: "checkmark" },
+  thermometer: { sf: "thermometer.medium", fallback: "thermometer" },
+  wind: { sf: "wind", fallback: "leaf-outline" },
+  wifiOff: { sf: "wifi.exclamationmark", fallback: "cloud-offline" }
+};
+function Icon({ icon, size = 22, color }) {
+  if (Platform2.OS === "ios") {
+    return <SymbolView
+      name={icon.sf}
+      size={size}
+      tintColor={color}
+      weight="medium"
+      resizeMode="scaleAspectFit"
+      fallback={<Ionicons name={icon.fallback} size={size} color={color} />}
+    />;
+  }
+  return <Ionicons name={icon.fallback} size={size} color={color} />;
+}
+
 // src/ui/theme.ts
 import { useColorScheme } from "react-native";
-var ORANGE = "#FF9E00";
+var ORANGE = "#FF9500";
 var light = {
   background: "#F2F2F7",
   card: "#FFFFFF",
-  text: "#1C1C1E",
-  secondary: "#6E6E73",
-  separator: "#D1D1D6",
+  text: "#000000",
+  secondary: "rgba(60, 60, 67, 0.6)",
+  tertiary: "rgba(60, 60, 67, 0.3)",
+  separator: "rgba(60, 60, 67, 0.29)",
+  fill: "rgba(120, 120, 128, 0.12)",
+  pressed: "rgba(120, 120, 128, 0.2)",
   accent: ORANGE,
   accentText: "#FFFFFF",
-  water: "#0A84FF",
+  accentSoft: "rgba(255, 149, 0, 0.14)",
+  water: "#007AFF",
   danger: "#FF3B30",
-  pressed: "#E5E5EA"
+  tabBar: "rgba(255, 255, 255, 0.72)",
+  tabBarBorder: "rgba(255, 255, 255, 0.6)",
+  blurTint: "systemChromeMaterialLight"
 };
 var dark = {
   background: "#000000",
   card: "#1C1C1E",
-  text: "#F2F2F7",
-  secondary: "#98989F",
-  separator: "#38383A",
-  accent: ORANGE,
+  text: "#FFFFFF",
+  secondary: "rgba(235, 235, 245, 0.6)",
+  tertiary: "rgba(235, 235, 245, 0.3)",
+  separator: "rgba(84, 84, 88, 0.6)",
+  fill: "rgba(118, 118, 128, 0.24)",
+  pressed: "rgba(118, 118, 128, 0.36)",
+  accent: "#FF9F0A",
   accentText: "#000000",
-  water: "#64D2FF",
+  accentSoft: "rgba(255, 159, 10, 0.18)",
+  water: "#0A84FF",
   danger: "#FF453A",
-  pressed: "#2C2C2E"
+  tabBar: "rgba(30, 30, 30, 0.72)",
+  tabBarBorder: "rgba(255, 255, 255, 0.08)",
+  blurTint: "systemChromeMaterialDark"
 };
 function useTheme() {
   return useColorScheme() === "dark" ? dark : light;
@@ -1235,33 +1278,50 @@ function formatTemp(value, unit = "\xB0") {
   if (value === void 0) return "\u2013";
   return value.toFixed(1).replace(".", ",") + unit;
 }
-function formatSigned(value, unit = " K") {
-  const text = Math.abs(value).toFixed(1).replace(".", ",");
-  return (value > 0 ? "+" : value < 0 ? "\u2212" : "\xB1") + text + unit;
-}
+var type = {
+  largeTitle: { fontSize: 34, lineHeight: 41, fontWeight: "700", letterSpacing: -0.4 },
+  title2: { fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.26 },
+  headline: { fontSize: 17, lineHeight: 22, fontWeight: "600", letterSpacing: -0.43 },
+  body: { fontSize: 17, lineHeight: 22, fontWeight: "400", letterSpacing: -0.43 },
+  subhead: { fontSize: 15, lineHeight: 20, fontWeight: "400", letterSpacing: -0.23 },
+  footnote: { fontSize: 13, lineHeight: 18, fontWeight: "400", letterSpacing: -0.08 },
+  caption: { fontSize: 12, lineHeight: 16, fontWeight: "500", letterSpacing: 0 },
+  /** Große Temperaturen: leicht, eng gesetzt, Ziffern gleich breit. */
+  display: { fontSize: 64, lineHeight: 70, fontWeight: "300", letterSpacing: -2, fontVariant: ["tabular-nums"] },
+  displaySmall: { fontSize: 34, lineHeight: 40, fontWeight: "400", letterSpacing: -0.8, fontVariant: ["tabular-nums"] }
+};
 
 // src/ui/components.tsx
+var pressedStyle = { transform: [{ scale: 0.98 }], opacity: 0.85 };
 function Card({ children, onPress, style }) {
   const theme = useTheme();
-  const content = (pressed) => [
-    styles.card,
-    { backgroundColor: pressed && onPress ? theme.pressed : theme.card },
-    style
-  ];
-  if (!onPress) return <View style={content(false)}>{children}</View>;
-  return <Pressable onPress={onPress} style={({ pressed }) => content(pressed)}>
+  const base = [styles.card, { backgroundColor: theme.card }, style];
+  if (!onPress) return <View style={base}>{children}</View>;
+  return <Pressable onPress={onPress} style={({ pressed }) => [...base, pressed && pressedStyle]}>
       {children}
     </Pressable>;
 }
-function SectionTitle({ children }) {
+function LargeTitle({ children }) {
   const theme = useTheme();
-  return <Text style={[styles.sectionTitle, { color: theme.secondary }]}>{children.toUpperCase()}</Text>;
+  return <Text style={[type.largeTitle, styles.largeTitle, { color: theme.text }]} accessibilityRole="header">
+      {children}
+    </Text>;
 }
-function Row({ label, value, last }) {
+function SectionTitle({ children, icon }) {
+  const theme = useTheme();
+  return <View style={styles.sectionTitle}>
+      {icon && <Icon icon={icon} size={15} color={theme.secondary} />}
+      <Text style={[type.footnote, styles.sectionText, { color: theme.secondary }]}>{children.toUpperCase()}</Text>
+    </View>;
+}
+function Row({ label, value, icon, last }) {
   const theme = useTheme();
   return <View style={[styles.row, !last && { borderBottomColor: theme.separator, borderBottomWidth: StyleSheet.hairlineWidth }]}>
-      <Text style={[styles.rowLabel, { color: theme.text }]}>{label}</Text>
-      <Text style={[styles.rowValue, { color: theme.secondary }]}>{value}</Text>
+      {icon && <View style={styles.rowIcon}>
+          <Icon icon={icon} size={17} color={theme.secondary} />
+        </View>}
+      <Text style={[type.body, styles.flex, { color: theme.text }]}>{label}</Text>
+      <Text style={[type.body, styles.tabular, { color: theme.secondary }]}>{value}</Text>
     </View>;
 }
 function Button({
@@ -1272,7 +1332,7 @@ function Button({
   style
 }) {
   const theme = useTheme();
-  const background = kind === "primary" ? theme.accent : theme.pressed;
+  const background = kind === "primary" ? theme.accent : theme.fill;
   const color = kind === "primary" ? theme.accentText : kind === "danger" ? theme.danger : theme.text;
   return <Pressable
     accessibilityRole="button"
@@ -1280,38 +1340,49 @@ function Button({
     disabled={disabled}
     style={({ pressed }) => [
       styles.button,
-      { backgroundColor: background, opacity: disabled ? 0.4 : pressed ? 0.7 : 1 },
+      { backgroundColor: background, opacity: disabled ? 0.4 : 1 },
+      pressed && pressedStyle,
       style
     ]}
   >
-      <Text style={[styles.buttonText, { color }]}>{title}</Text>
+      <Text style={[type.headline, { color }]}>{title}</Text>
     </Pressable>;
 }
-function OptionList({
+function ModeTiles({
   options,
   selected,
   onSelect,
   disabled
 }) {
   const theme = useTheme();
-  return <Card style={styles.listCard}>
-      {options.map((option, i) => <Pressable
-    key={option.value}
-    accessibilityRole="radio"
-    accessibilityState={{ selected: option.value === selected, disabled }}
-    disabled={disabled}
-    onPress={() => option.value !== selected && onSelect(option.value)}
-    style={({ pressed }) => [
-      styles.row,
-      styles.listRow,
-      pressed && { backgroundColor: theme.pressed },
-      i < options.length - 1 && { borderBottomColor: theme.separator, borderBottomWidth: StyleSheet.hairlineWidth }
-    ]}
-  >
-          <Text style={[styles.rowLabel, { color: disabled ? theme.secondary : theme.text }]}>{option.label}</Text>
-          {option.value === selected && <Text style={[styles.check, { color: theme.accent }]}>✓</Text>}
-        </Pressable>)}
-    </Card>;
+  return <View style={styles.tiles} accessibilityRole="radiogroup">
+      {options.map((option) => {
+    const active = option.value === selected;
+    const color = active ? theme.accentText : theme.text;
+    return <Pressable
+      key={option.value}
+      accessibilityRole="radio"
+      accessibilityState={{ selected: active, disabled }}
+      accessibilityLabel={option.label}
+      disabled={disabled}
+      onPress={() => {
+        if (active) return;
+        haptic.select();
+        onSelect(option.value);
+      }}
+      style={({ pressed }) => [
+        styles.tile,
+        { backgroundColor: active ? theme.accent : theme.card, opacity: disabled && !active ? 0.5 : 1 },
+        pressed && !active && pressedStyle
+      ]}
+    >
+            <Icon icon={option.icon} size={24} color={active ? theme.accentText : theme.accent} />
+            <Text style={[type.caption, styles.tileLabel, { color }]} numberOfLines={2}>
+              {option.label}
+            </Text>
+          </Pressable>;
+  })}
+    </View>;
 }
 function SetpointEditor({
   title,
@@ -1319,6 +1390,7 @@ function SetpointEditor({
   step,
   unit = "\xB0",
   disabled,
+  last,
   onCommit
 }) {
   const theme = useTheme();
@@ -1330,14 +1402,14 @@ function SetpointEditor({
     const next = Math.round(Math.min(max, Math.max(min, value + delta)) * 100) / 100;
     setDraft(next === setpoint2.value ? void 0 : next);
   };
-  return <View style={styles.editor}>
+  return <View style={[styles.editor, !last && { borderBottomColor: theme.separator, borderBottomWidth: StyleSheet.hairlineWidth }]}>
       <View style={styles.editorRow}>
-        <Text style={[styles.rowLabel, { color: theme.text, flex: 1 }]}>{title}</Text>
-        <StepButton label="−" onPress={() => change(-step)} disabled={disabled || value <= min} />
-        <Text style={[styles.editorValue, { color: draft === void 0 ? theme.text : theme.accent }]}>
+        <Text style={[type.body, styles.flex, { color: theme.text }]}>{title}</Text>
+        <StepButton icon={icons.minus} label="Niedriger" onPress={() => change(-step)} disabled={disabled || value <= min} />
+        <Text style={[type.headline, styles.editorValue, { color: draft === void 0 ? theme.text : theme.accent }]}>
           {formatTemp(value, unit)}
         </Text>
-        <StepButton label="+" onPress={() => change(step)} disabled={disabled || value >= max} />
+        <StepButton icon={icons.plus} label="Höher" onPress={() => change(step)} disabled={disabled || value >= max} />
       </View>
       {draft !== void 0 && <View style={styles.editorActions}>
           <Button title="Verwerfen" kind="secondary" onPress={() => setDraft(void 0)} style={styles.flex} />
@@ -1346,6 +1418,7 @@ function SetpointEditor({
     disabled={disabled}
     onPress={async () => {
       await onCommit(draft);
+      haptic.success();
       setDraft(void 0);
     }}
     style={styles.flex}
@@ -1354,6 +1427,7 @@ function SetpointEditor({
     </View>;
 }
 function StepButton({
+  icon,
   label,
   onPress,
   disabled,
@@ -1362,237 +1436,487 @@ function StepButton({
   const theme = useTheme();
   return <Pressable
     accessibilityRole="button"
-    accessibilityLabel={label === "+" || label === "\u25B2" ? "H\xF6her" : "Niedriger"}
-    onPress={onPress}
+    accessibilityLabel={label}
+    onPress={() => {
+      haptic.tap();
+      onPress();
+    }}
     disabled={disabled}
     hitSlop={6}
     style={({ pressed }) => [
       large ? styles.stepLarge : styles.step,
-      { backgroundColor: pressed ? theme.separator : theme.pressed, opacity: disabled ? 0.35 : 1 }
+      { backgroundColor: theme.fill, opacity: disabled ? 0.35 : 1 },
+      pressed && { backgroundColor: theme.pressed, transform: [{ scale: 0.94 }] }
     ]}
   >
-      <Text style={[large ? styles.stepLargeText : styles.stepText, { color: theme.text }]}>{label}</Text>
+      <Icon icon={icon} size={large ? 22 : 16} color={theme.text} />
     </Pressable>;
 }
 function StatusView({
   title,
   message,
+  icon,
   loading,
   children
 }) {
   const theme = useTheme();
   return <View style={styles.status}>
-      {loading && <ActivityIndicator size="large" color={theme.accent} style={{ marginBottom: 16 }} />}
-      <Text style={[styles.statusTitle, { color: theme.text }]}>{title}</Text>
-      {message && <Text style={[styles.statusMessage, { color: theme.secondary }]}>{message}</Text>}
+      {loading ? <ActivityIndicator size="large" color={theme.accent} style={styles.statusIcon} /> : icon && <View style={styles.statusIcon}>
+            <Icon icon={icon} size={44} color={theme.tertiary} />
+          </View>}
+      <Text style={[type.title2, styles.center, { color: theme.text }]}>{title}</Text>
+      {message && <Text style={[type.subhead, styles.center, styles.statusMessage, { color: theme.secondary }]}>{message}</Text>}
       <View style={styles.statusActions}>{children}</View>
     </View>;
 }
 var styles = StyleSheet.create({
-  card: { borderRadius: 16, padding: 16 },
-  listCard: { padding: 0, overflow: "hidden" },
-  sectionTitle: { fontSize: 13, marginTop: 20, marginBottom: 6, marginLeft: 16 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 12 },
-  listRow: { paddingHorizontal: 16, minHeight: 48 },
-  rowLabel: { fontSize: 17 },
-  rowValue: { fontSize: 17, fontVariant: ["tabular-nums"] },
-  check: { fontSize: 18, fontWeight: "600" },
-  button: { borderRadius: 12, paddingVertical: 13, paddingHorizontal: 18, alignItems: "center" },
-  buttonText: { fontSize: 17, fontWeight: "600" },
-  editor: { paddingVertical: 10 },
-  editorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  editorValue: { fontSize: 20, fontWeight: "600", minWidth: 72, textAlign: "center", fontVariant: ["tabular-nums"] },
-  editorActions: { flexDirection: "row", gap: 10, marginTop: 10 },
   flex: { flex: 1 },
-  step: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  stepText: { fontSize: 22, fontWeight: "500" },
-  stepLarge: { width: 60, height: 52, borderRadius: 14, alignItems: "center", justifyContent: "center" },
-  stepLargeText: { fontSize: 22, fontWeight: "600" },
-  status: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
-  statusTitle: { fontSize: 22, fontWeight: "700", textAlign: "center" },
-  statusMessage: { fontSize: 16, textAlign: "center", marginTop: 8 },
-  statusActions: { marginTop: 24, gap: 12, alignSelf: "stretch" }
+  center: { textAlign: "center" },
+  tabular: { fontVariant: ["tabular-nums"] },
+  card: { borderRadius: 22, padding: 18, borderCurve: "continuous" },
+  largeTitle: { marginTop: 8, marginBottom: 12 },
+  sectionTitle: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 24, marginBottom: 8, marginLeft: 18 },
+  sectionText: { letterSpacing: 0.3 },
+  row: { flexDirection: "row", alignItems: "center", minHeight: 48, paddingVertical: 11 },
+  rowIcon: { width: 28 },
+  button: { borderRadius: 14, paddingVertical: 14, paddingHorizontal: 18, alignItems: "center", borderCurve: "continuous" },
+  tiles: { flexDirection: "row", gap: 8 },
+  tile: {
+    flex: 1,
+    minHeight: 84,
+    borderRadius: 18,
+    borderCurve: "continuous",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 12
+  },
+  tileLabel: { textAlign: "center" },
+  editor: { paddingVertical: 12 },
+  editorRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  editorValue: { minWidth: 70, textAlign: "center", fontVariant: ["tabular-nums"] },
+  editorActions: { flexDirection: "row", gap: 10, marginTop: 12 },
+  step: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  stepLarge: { width: 56, height: 48, borderRadius: 16, alignItems: "center", justifyContent: "center", borderCurve: "continuous" },
+  status: { alignItems: "center", justifyContent: "center", paddingHorizontal: 16, paddingTop: 96, paddingBottom: 32 },
+  statusIcon: { marginBottom: 16 },
+  statusMessage: { marginTop: 8 },
+  statusActions: { marginTop: 28, gap: 12, alignSelf: "stretch" }
+});
+
+// src/ui/Screen.tsx
+import { useState as useState4 } from "react";
+import { Pressable as Pressable3, RefreshControl, ScrollView, StyleSheet as StyleSheet3, Text as Text3, View as View3 } from "react-native";
+import { useSafeAreaInsets as useSafeAreaInsets2 } from "react-native-safe-area-context";
+
+// src/ui/TabBar.tsx
+import { BlurView } from "expo-blur";
+import { useEffect, useRef as useRef2, useState as useState3 } from "react";
+import { AccessibilityInfo, Animated, Pressable as Pressable2, StyleSheet as StyleSheet2, Text as Text2, View as View2 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+var TAB_BAR_HEIGHT = 64;
+var useTabBarInset = () => TAB_BAR_HEIGHT + Math.max(useSafeAreaInsets().bottom, 12) + 16;
+var FLAGS = {
+  reduceMotion: { query: "isReduceMotionEnabled", event: "reduceMotionChanged" },
+  reduceTransparency: { query: "isReduceTransparencyEnabled", event: "reduceTransparencyChanged" }
+};
+function useAccessibilityFlag(flag) {
+  const [value, setValue] = useState3(false);
+  useEffect(() => {
+    const { query, event } = FLAGS[flag];
+    const read = AccessibilityInfo[query];
+    read?.call(AccessibilityInfo).then(setValue, () => void 0);
+    const sub = AccessibilityInfo.addEventListener(event, setValue);
+    return () => sub?.remove();
+  }, [flag]);
+  return value;
+}
+function TabBar({
+  tabs,
+  active,
+  onChange
+}) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets();
+  const reduceMotion = useAccessibilityFlag("reduceMotion");
+  const reduceTransparency = useAccessibilityFlag("reduceTransparency");
+  const [width, setWidth] = useState3(0);
+  const index = Math.max(0, tabs.findIndex((t) => t.key === active));
+  const position = useRef2(new Animated.Value(index)).current;
+  useEffect(() => {
+    if (reduceMotion) {
+      position.setValue(index);
+      return;
+    }
+    Animated.spring(position, { toValue: index, useNativeDriver: true, damping: 26, stiffness: 300, mass: 1 }).start();
+  }, [index, position, reduceMotion]);
+  const inner = width - 12;
+  const itemWidth = tabs.length > 0 ? inner / tabs.length : 0;
+  return <View2
+    pointerEvents="box-none"
+    style={[styles2.wrapper, { paddingBottom: Math.max(insets.bottom, 12) }]}
+  >
+      <View2
+    onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+    style={[styles2.bar, { borderColor: theme.tabBarBorder }]}
+    accessibilityRole="tablist"
+  >
+        {reduceTransparency ? <View2 style={[StyleSheet2.absoluteFill, { backgroundColor: theme.card }]} /> : <BlurView tint={theme.blurTint} intensity={80} style={StyleSheet2.absoluteFill}>
+            <View2 style={[StyleSheet2.absoluteFill, { backgroundColor: theme.tabBar }]} />
+          </BlurView>}
+        {width > 0 && <Animated.View
+    style={[
+      styles2.indicator,
+      {
+        width: itemWidth,
+        backgroundColor: theme.fill,
+        transform: [{ translateX: Animated.multiply(position, itemWidth) }]
+      }
+    ]}
+  />}
+        {tabs.map((tab) => {
+    const selected = tab.key === active;
+    const color = selected ? theme.accent : theme.text;
+    return <Pressable2
+      key={tab.key}
+      accessibilityRole="tab"
+      accessibilityState={{ selected }}
+      accessibilityLabel={tab.label}
+      onPress={() => onChange(tab.key)}
+      style={({ pressed }) => [styles2.item, pressed && { opacity: 0.6 }]}
+    >
+              <Icon icon={tab.icon} size={22} color={color} />
+              <Text2 style={[styles2.label, { color }]} numberOfLines={1}>
+                {tab.label}
+              </Text2>
+            </Pressable2>;
+  })}
+      </View2>
+    </View2>;
+}
+var styles2 = StyleSheet2.create({
+  wrapper: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16 },
+  bar: {
+    height: TAB_BAR_HEIGHT,
+    borderRadius: TAB_BAR_HEIGHT / 2,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    overflow: "hidden",
+    borderWidth: StyleSheet2.hairlineWidth,
+    // Tiefe: größere Fläche, weicher Schatten
+    shadowColor: "#000",
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12
+  },
+  indicator: { position: "absolute", left: 6, top: 6, bottom: 6, borderRadius: (TAB_BAR_HEIGHT - 12) / 2 },
+  item: { flex: 1, height: "100%", alignItems: "center", justifyContent: "center", gap: 3 },
+  label: { fontSize: 11, lineHeight: 13, fontWeight: "600", letterSpacing: 0.07 }
+});
+
+// src/ui/Screen.tsx
+function Screen({
+  title,
+  children,
+  onRefresh,
+  onBack
+}) {
+  const theme = useTheme();
+  const insets = useSafeAreaInsets2();
+  const bottom = useTabBarInset();
+  const [refreshing, setRefreshing] = useState4(false);
+  return <View3 style={[styles3.root, { backgroundColor: theme.background }]}>
+      {onBack && <View3 style={[styles3.navBar, { paddingTop: insets.top + 4, backgroundColor: theme.background }]}>
+          <Pressable3
+    onPress={onBack}
+    hitSlop={12}
+    accessibilityRole="button"
+    accessibilityLabel="Zurück"
+    style={({ pressed }) => [styles3.back, pressed && { opacity: 0.5 }]}
+  >
+            <Icon icon={icons.back} size={20} color={theme.accent} />
+            <Text3 style={[type.body, { color: theme.accent }]}>Zurück</Text3>
+          </Pressable3>
+          <Text3 style={[type.headline, styles3.navTitle, { color: theme.text }]} numberOfLines={1}>
+            {title}
+          </Text3>
+          <View3 style={styles3.back} />
+        </View3>}
+      <ScrollView
+    contentContainerStyle={[
+      styles3.content,
+      { paddingTop: onBack ? 8 : insets.top + 8, paddingBottom: bottom }
+    ]}
+    keyboardShouldPersistTaps="handled"
+    scrollIndicatorInsets={{ bottom }}
+    refreshControl={onRefresh ? <RefreshControl
+      refreshing={refreshing}
+      tintColor={theme.accent}
+      onRefresh={async () => {
+        setRefreshing(true);
+        await onRefresh();
+        setRefreshing(false);
+      }}
+    /> : void 0}
+  >
+        {!onBack && <LargeTitle>{title}</LargeTitle>}
+        {children}
+      </ScrollView>
+    </View3>;
+}
+var styles3 = StyleSheet3.create({
+  root: { flex: 1 },
+  content: { paddingHorizontal: 16 },
+  navBar: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingBottom: 8 },
+  back: { flexDirection: "row", alignItems: "center", gap: 2, width: 96 },
+  navTitle: { flex: 1, textAlign: "center" }
+});
+
+// src/screens/DataScreen.tsx
+function DataScreen() {
+  const { snapshot, refresh } = useHeating();
+  const theme = useTheme();
+  if (!snapshot) return null;
+  const hp = snapshot.heatPump;
+  const sections = [
+    {
+      title: "W\xE4rmepumpe",
+      icon: icons.heat,
+      rows: [
+        { label: "Vorlauf", value: hp?.flowTemperature },
+        { label: "R\xFCcklauf", value: hp?.returnTemperature },
+        { label: "Luft rein", value: hp?.sourceInTemperature },
+        { label: "Luft raus", value: hp?.sourceOutTemperature }
+      ]
+    },
+    {
+      title: "Puffer",
+      icon: icons.thermometer,
+      rows: [
+        { label: "Oben", value: hp?.bufferTopTemperature },
+        { label: "Mitte", value: hp?.bufferMidTemperature }
+      ]
+    },
+    {
+      title: "Au\xDFen",
+      icon: icons.wind,
+      rows: [{ label: "Au\xDFentemperatur", value: snapshot.outdoorTemperature }]
+    },
+    ...snapshot.heatCircuits.map((c) => ({
+      title: c.name,
+      icon: icons.sun,
+      rows: [
+        { label: "Aktueller Sollwert", value: c.currentSetTemperature },
+        { label: "Komfort", value: c.normalSetTemperature?.value },
+        { label: "Absenkung", value: c.reducedSetTemperature?.value },
+        { label: "Raum", value: c.roomTemperature },
+        { label: "Vorlauf-Soll", value: c.flowSetTemperature }
+      ]
+    })),
+    ...snapshot.hotWaterTanks.map((t) => ({
+      title: t.name,
+      icon: icons.drop,
+      rows: [
+        { label: "Ist", value: t.temperature },
+        { label: "Soll", value: t.setTemperature?.value }
+      ]
+    }))
+  ];
+  return <Screen title="Daten" onRefresh={refresh}>
+      {sections.map((section) => {
+    const rows = section.rows.filter((r) => r.value !== void 0);
+    if (rows.length === 0) return null;
+    return <SectionBlock key={section.title} title={section.title} icon={section.icon}>
+            {rows.map((r, i) => <Row key={r.label} label={r.label} value={formatTemp(r.value)} last={i === rows.length - 1} />)}
+          </SectionBlock>;
+  })}
+      <Text4 style={[type.footnote, styles4.footer, { color: theme.secondary }]}>
+        Stand {snapshot.fetchedAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} · zum
+        Aktualisieren nach unten ziehen
+      </Text4>
+    </Screen>;
+}
+function SectionBlock({
+  title,
+  icon,
+  children
+}) {
+  return <>
+      <SectionTitle icon={icon}>{title}</SectionTitle>
+      <Card style={styles4.list}>{children}</Card>
+    </>;
+}
+var styles4 = StyleSheet4.create({
+  list: { paddingVertical: 2 },
+  footer: { textAlign: "center", marginTop: 20 }
 });
 
 // src/screens/DetailScreens.tsx
-var MODE_LOCKED_NOTE = "Die Betriebsart wird \xFCber Modbus angezeigt, das Umstellen ist hier noch nicht freigeschaltet (bitte am Display).";
-function HeatCircuitScreen({ index }) {
-  const { snapshot, perform, writing, canWrite } = useHeating();
-  const modeWritable = canWrite(KebaVar.heatCircuit.operatingMode(index));
+import { StyleSheet as StyleSheet5, Text as Text5 } from "react-native";
+function HeatCircuitScreen({ index, onBack }) {
+  const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const circuit = snapshot?.heatCircuits.find((c) => c.index === index);
   if (!circuit) return null;
-  const modes = HeatCircuitModes.filter(
-    (m) => selectableHeatCircuitModes.includes(m.value) || m.value === circuit.operatingMode
-  );
-  return <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles2.content}>
-      <SectionTitle>Status</SectionTitle>
-      <Card style={styles2.listCard}>
-        <Row label="Aktueller Sollwert" value={formatTemp(circuit.currentSetTemperature)} />
-        {circuit.roomTemperature !== void 0 && <Row label="Raumtemperatur" value={formatTemp(circuit.roomTemperature)} />}
-        {circuit.roomHumidity !== void 0 && <Row label="Luftfeuchte" value={`${Math.round(circuit.roomHumidity)} %`} />}
-        {circuit.flowSetTemperature !== void 0 && <Row label="Vorlauf-Soll" value={formatTemp(circuit.flowSetTemperature)} />}
-        <Row label="Heizanforderung" value={circuit.heatRequest ? "Ja" : "Nein"} last />
-      </Card>
-
-      <SectionTitle>Betriebsart</SectionTitle>
-      <OptionList
-    options={modes}
-    selected={circuit.operatingMode}
-    disabled={writing || !modeWritable}
-    onSelect={(mode) => perform((c) => commands.setHeatCircuitMode(c, index, mode))}
-  />
-      {!modeWritable && <Text2 style={[styles2.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text2>}
-
+  const editors = [
+    circuit.normalSetTemperature && {
+      key: "normal",
+      title: "Komfort (Sonne)",
+      setpoint: circuit.normalSetTemperature,
+      unit: "\xB0",
+      commit: (v) => perform((c) => commands.setNormalTemperature(c, index, v))
+    },
+    circuit.reducedSetTemperature && {
+      key: "reduced",
+      title: "Absenkung (Mond)",
+      setpoint: circuit.reducedSetTemperature,
+      unit: "\xB0",
+      commit: (v) => perform((c) => commands.setReducedTemperature(c, index, v))
+    },
+    circuit.offset && {
+      key: "offset",
+      title: "Korrektur",
+      setpoint: circuit.offset,
+      unit: " K",
+      commit: (v) => perform((c) => commands.setOffset(c, index, v))
+    }
+  ].filter((e) => Boolean(e));
+  return <Screen title={circuit.name} onBack={onBack}>
       <SectionTitle>Temperaturen</SectionTitle>
-      <Card style={styles2.listCard}>
-        {circuit.normalSetTemperature && <SetpointEditor
-    title="Komfort (Tag)"
-    setpoint={circuit.normalSetTemperature}
+      <Card style={styles5.list}>
+        {editors.map((e, i) => <SetpointEditor
+    key={e.key}
+    title={e.title}
+    setpoint={e.setpoint}
     step={0.5}
+    unit={e.unit}
     disabled={writing}
-    onCommit={(v) => perform((c) => commands.setNormalTemperature(c, index, v))}
-  />}
-        {circuit.reducedSetTemperature && <SetpointEditor
-    title="Absenkung (Nacht)"
-    setpoint={circuit.reducedSetTemperature}
-    step={0.5}
-    disabled={writing}
-    onCommit={(v) => perform((c) => commands.setReducedTemperature(c, index, v))}
-  />}
-        {circuit.offset && <SetpointEditor
-    title="Korrektur"
-    setpoint={circuit.offset}
-    step={0.5}
-    unit=" K"
-    disabled={writing}
-    onCommit={(v) => perform((c) => commands.setOffset(c, index, v))}
-  />}
+    last={i === editors.length - 1}
+    onCommit={e.commit}
+  />)}
       </Card>
-      <Text2 style={[styles2.footnote, { color: theme.secondary }]}>
-        Die Korrektur entspricht den Pfeiltasten auf dem Startbildschirm der Heizung. Aktuell:{" "}
-        {modeLabel(HeatCircuitModes, circuit.operatingMode)}.
-      </Text2>
-    </ScrollView>;
+      <Text5 style={[type.footnote, styles5.note, { color: theme.secondary }]}>
+        Komfort gilt bei Sonne und in den Komfortzeiten der Automatik, Absenkung bei Mond und nachts. Die
+        Betriebsart stellst du unter „Heizarten“ um.
+      </Text5>
+    </Screen>;
 }
-function HotWaterScreen({ index }) {
-  const { snapshot, perform, writing, canWrite } = useHeating();
-  const modeWritable = canWrite(KebaVar.hotWaterTank.operatingMode(index));
+function HotWaterScreen({ index, onBack }) {
+  const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const tank = snapshot?.hotWaterTanks.find((t) => t.index === index);
   if (!tank) return null;
-  return <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles2.content}>
-      <SectionTitle>Status</SectionTitle>
-      <Card style={styles2.listCard}>
-        <Row label="Temperatur oben" value={formatTemp(tank.temperature)} />
-        <Row label="Wird geheizt" value={tank.heatRequest ? "Ja" : "Nein"} last />
-      </Card>
-
-      <SectionTitle>Betriebsart</SectionTitle>
-      <OptionList
-    options={HotWaterModes.filter((m) => selectableHotWaterModes.includes(m.value))}
-    selected={tank.operatingMode}
-    disabled={writing || !modeWritable}
-    onSelect={(mode) => perform((c) => commands.setHotWaterMode(c, index, mode))}
-  />
-      {!modeWritable && <Text2 style={[styles2.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text2>}
-
+  return <Screen title={tank.name} onBack={onBack}>
       {tank.setTemperature && <>
           <SectionTitle>Temperatur</SectionTitle>
-          <Card style={styles2.listCard}>
+          <Card style={styles5.list}>
             <SetpointEditor
     title="Solltemperatur"
     setpoint={tank.setTemperature}
     step={1}
     disabled={writing}
+    last
     onCommit={(v) => perform((c) => commands.setHotWaterTemperature(c, index, v))}
   />
           </Card>
         </>}
-    </ScrollView>;
+      <Text5 style={[type.footnote, styles5.note, { color: theme.secondary }]}>
+        Die Betriebsart (z. B. einmal aufheizen) stellst du unter „Heizarten“ um.
+      </Text5>
+    </Screen>;
 }
-var styles2 = StyleSheet2.create({
-  content: { padding: 16, paddingBottom: 40 },
-  listCard: { paddingVertical: 4 },
-  footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 16 }
+var styles5 = StyleSheet5.create({
+  list: { paddingVertical: 2 },
+  note: { marginTop: 8, marginHorizontal: 18 }
 });
 
-// src/screens/Dashboard.tsx
-import { useEffect, useState as useState3 } from "react";
-import { Modal, Pressable as Pressable2, RefreshControl, ScrollView as ScrollView2, StyleSheet as StyleSheet3, Text as Text3, View as View2 } from "react-native";
-function Dashboard({ navigate }) {
+// src/screens/HomeScreen.tsx
+import { useEffect as useEffect2 } from "react";
+import { StyleSheet as StyleSheet6, Text as Text6, View as View4 } from "react-native";
+
+// src/screens/modeOptions.ts
+var systemModeTiles = [
+  { value: 0, label: "Standby", icon: icons.power },
+  { value: 1, label: "Warmwasser", icon: icons.drop },
+  { value: 2, label: "Automatik heizen", icon: icons.heat }
+];
+var heatCircuitModeTiles = [
+  { value: 0, label: "Aus", icon: icons.power },
+  { value: 1, label: "Automatik", icon: icons.clock },
+  { value: 2, label: "Komfort", icon: icons.sun },
+  { value: 3, label: "Absenkung", icon: icons.moon }
+];
+var hotWaterModeTiles = [
+  { value: 0, label: "Aus", icon: icons.power },
+  { value: 1, label: "Automatik", icon: icons.clock },
+  { value: 2, label: "Ein", icon: icons.drop },
+  { value: 3, label: "Aufheizen", icon: icons.flame }
+];
+function tileLabel(tiles, value) {
+  if (value === void 0) return "\u2013";
+  return tiles.find((t) => t.value === value)?.label ?? `Modus ${value}`;
+}
+function tileIcon(tiles, value) {
+  return tiles.find((t) => t.value === value)?.icon;
+}
+
+// src/screens/HomeScreen.tsx
+function HomeScreen({ navigate }) {
   const { snapshot, refresh, writing, offline } = useHeating();
   const theme = useTheme();
-  const [pulling, setPulling] = useState3(false);
-  useEffect(() => {
+  useEffect2(() => {
     const timer = setInterval(() => void refresh(), 3e4);
     return () => clearInterval(timer);
   }, [refresh]);
   if (!snapshot) return null;
-  return <ScrollView2
-    style={{ backgroundColor: theme.background }}
-    contentContainerStyle={styles3.content}
-    refreshControl={<RefreshControl
-      refreshing={pulling}
-      tintColor={theme.accent}
-      onRefresh={async () => {
-        setPulling(true);
-        await refresh();
-        setPulling(false);
-      }}
-    />}
-  >
-      <SystemCard />
-      {snapshot.heatCircuits.map((circuit) => <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => navigate({ name: "circuit", index: circuit.index })} />)}
-      {snapshot.hotWaterTanks.map((tank) => <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: "hotWater", index: tank.index })} />)}
-      {snapshot.heatPump && <HeatPumpCard heatPump={snapshot.heatPump} />}
-      <Text3 style={[styles3.footer, { color: theme.secondary }]}>
-        {writing ? "Wird gespeichert \u2026" : `${offline ? "Keine Verbindung \u2013 letzter Stand" : "Stand"}: ${snapshot.fetchedAt.toLocaleTimeString("de-DE")}`}
-      </Text3>
-    </ScrollView2>;
+  return <Screen title="Heizung" onRefresh={refresh}>
+      <View4 style={styles6.stack}>
+        <OverviewCard />
+        {snapshot.heatCircuits.map((circuit) => <HeatCircuitCard key={circuit.index} circuit={circuit} onPress={() => navigate({ name: "circuit", index: circuit.index })} />)}
+        {snapshot.hotWaterTanks.map((tank) => <HotWaterCard key={tank.index} tank={tank} onPress={() => navigate({ name: "hotWater", index: tank.index })} />)}
+        <Text6 style={[type.footnote, styles6.footer, { color: offline ? theme.danger : theme.secondary }]}>
+          {writing ? "Wird gespeichert \u2026" : `${offline ? "Keine Verbindung \u2013 letzter Stand" : "Aktualisiert"} ${snapshot.fetchedAt.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}`}
+        </Text6>
+      </View4>
+    </Screen>;
 }
-function SystemCard() {
-  const { snapshot, perform, writing, canWrite } = useHeating();
-  const modeWritable = canWrite(KebaVar.systemOperatingMode);
+function OverviewCard() {
+  const { snapshot } = useHeating();
   const theme = useTheme();
-  const [picking, setPicking] = useState3(false);
   if (!snapshot) return null;
-  return <Card style={styles3.systemCard}>
-      <View2>
-        <Text3 style={[styles3.caption, { color: theme.secondary }]}>Außen</Text3>
-        <Text3 style={[styles3.mediumTemp, { color: theme.text }]}>{formatTemp(snapshot.outdoorTemperature)}</Text3>
-      </View2>
-      {
-    /* Über Modbus ist die Anlagen-Betriebsart (noch) nicht bekannt → Auswahl ausblenden. */
-  }
-      {snapshot.systemOperatingMode !== void 0 && <Pressable2
-    onPress={() => setPicking(true)}
-    disabled={writing || !modeWritable}
-    style={styles3.systemMode}
-    hitSlop={8}
-  >
-          <Text3 style={[styles3.caption, { color: theme.secondary }]}>Anlage</Text3>
-          <Text3 style={[styles3.systemModeText, { color: theme.accent }]}>
-            {modeLabel(SystemModes, snapshot.systemOperatingMode)} ▾
-          </Text3>
-        </Pressable2>}
-
-      <Modal visible={picking} transparent animationType="fade" onRequestClose={() => setPicking(false)}>
-        <Pressable2 style={styles3.backdrop} onPress={() => setPicking(false)}>
-          <View2 style={styles3.sheet}>
-            <Text3 style={[styles3.sheetTitle, { color: "#fff" }]}>Betriebsart der Anlage</Text3>
-            <OptionList
-    options={SystemModes.filter((m) => selectableSystemModes.includes(m.value))}
-    selected={snapshot.systemOperatingMode}
-    onSelect={(mode) => {
-      setPicking(false);
-      void perform((c) => commands.setSystemMode(c, mode));
-    }}
-  />
-          </View2>
-        </Pressable2>
-      </Modal>
+  const systemIcon = tileIcon(systemModeTiles, snapshot.systemOperatingMode);
+  return <Card>
+      <View4 style={styles6.overview}>
+        <Metric label="Außen" value={formatTemp(snapshot.outdoorTemperature)} icon={icons.thermometer} />
+        {snapshot.heatPump?.bufferTopTemperature !== void 0 && <Metric label="Puffer" value={formatTemp(snapshot.heatPump.bufferTopTemperature)} icon={icons.heat} />}
+      </View4>
+      {snapshot.systemOperatingMode !== void 0 && <View4 style={[styles6.chip, { backgroundColor: theme.accentSoft }]}>
+          {systemIcon && <Icon icon={systemIcon} size={14} color={theme.accent} />}
+          <Text6 style={[type.footnote, styles6.chipText, { color: theme.accent }]}>
+            {tileLabel(systemModeTiles, snapshot.systemOperatingMode)}
+          </Text6>
+        </View4>}
     </Card>;
+}
+function Metric({ label, value, icon }) {
+  const theme = useTheme();
+  return <View4 style={styles6.metric}>
+      <View4 style={styles6.metricLabel}>
+        <Icon icon={icon} size={14} color={theme.secondary} />
+        <Text6 style={[type.footnote, { color: theme.secondary }]}>{label}</Text6>
+      </View4>
+      <Text6 style={[type.displaySmall, { color: theme.text }]}>{value}</Text6>
+    </View4>;
+}
+function ModeChip({ label, icon }) {
+  const theme = useTheme();
+  return <View4 style={[styles6.chip, styles6.chipInline, { backgroundColor: theme.fill }]}>
+      {icon && <Icon icon={icon} size={13} color={theme.secondary} />}
+      <Text6 style={[type.caption, { color: theme.secondary }]}>{label}</Text6>
+    </View4>;
 }
 function HeatCircuitCard({ circuit, onPress }) {
   const { perform, writing } = useHeating();
@@ -1609,92 +1933,147 @@ function HeatCircuitCard({ circuit, onPress }) {
     );
   };
   return <Card onPress={onPress}>
-      <View2 style={styles3.cardHeader}>
-        <Text3 style={[styles3.cardTitle, { color: theme.text }]}>
+      <View4 style={styles6.cardHeader}>
+        <Text6 style={[type.headline, styles6.flexShrink, { color: theme.text }]} numberOfLines={1}>
           {circuit.name}
-          {circuit.heatRequest ? "  \u{1F525}" : ""}
-        </Text3>
-        <Text3 style={[styles3.caption, { color: theme.secondary }]}>
-          {modeLabel(HeatCircuitModes, circuit.operatingMode)} ›
-        </Text3>
-      </View2>
-      <View2 style={styles3.circuitBody}>
-        <View2 style={{ flex: 1 }}>
-          <Text3 style={[styles3.bigTemp, { color: theme.accent }]}>{formatTemp(circuit.currentSetTemperature)}</Text3>
-          {offset && offset.value !== 0 && <Text3 style={[styles3.caption, { color: theme.secondary }]}>Korrektur {formatSigned(offset.value)}</Text3>}
-          {circuit.roomTemperature !== void 0 && <Text3 style={[styles3.subline, { color: theme.secondary }]}>Raum {formatTemp(circuit.roomTemperature)}</Text3>}
-        </View2>
-        {target && <View2 style={styles3.steps}>
-            <StepButton large label="▲" onPress={() => step(0.5)} disabled={writing} />
-            <StepButton large label="▼" onPress={() => step(-0.5)} disabled={writing} />
-          </View2>}
-      </View2>
-    </Card>;
-}
-function HeatPumpCard({ heatPump }) {
-  const theme = useTheme();
-  const rows = [
-    ["Vorlauf", heatPump.flowTemperature],
-    ["R\xFCcklauf", heatPump.returnTemperature],
-    ["Puffer oben", heatPump.bufferTopTemperature],
-    ["Puffer Mitte", heatPump.bufferMidTemperature],
-    ["Luft rein", heatPump.sourceInTemperature],
-    ["Luft raus", heatPump.sourceOutTemperature]
-  ];
-  return <Card>
-      <Text3 style={[styles3.cardTitle, { color: theme.text, marginBottom: 8 }]}>Wärmepumpe</Text3>
-      <View2 style={styles3.grid}>
-        {rows.filter(([, value]) => value !== void 0).map(([label, value]) => <View2 key={label} style={styles3.gridItem}>
-              <Text3 style={[styles3.caption, { color: theme.secondary }]}>{label}</Text3>
-              <Text3 style={[styles3.gridValue, { color: theme.text }]}>{formatTemp(value)}</Text3>
-            </View2>)}
-      </View2>
+        </Text6>
+        {circuit.heatRequest && <Icon icon={icons.flame} size={15} color={theme.accent} />}
+        <View4 style={styles6.flex} />
+        <ModeChip
+    label={tileLabel(heatCircuitModeTiles, circuit.operatingMode)}
+    icon={tileIcon(heatCircuitModeTiles, circuit.operatingMode)}
+  />
+        <Icon icon={icons.forward} size={13} color={theme.tertiary} />
+      </View4>
+      <View4 style={styles6.circuitBody}>
+        <View4 style={styles6.flex}>
+          <Text6 style={[type.display, { color: theme.accent }]}>{formatTemp(circuit.currentSetTemperature)}</Text6>
+          <Text6 style={[type.footnote, { color: theme.secondary }]}>
+            {[
+    circuit.normalSetTemperature && `Komfort ${formatTemp(circuit.normalSetTemperature.value)}`,
+    circuit.reducedSetTemperature && `Absenkung ${formatTemp(circuit.reducedSetTemperature.value)}`
+  ].filter(Boolean).join("  \xB7  ")}
+          </Text6>
+        </View4>
+        {target && <View4 style={styles6.steps}>
+            <StepButton large icon={icons.up} label="Wärmer" onPress={() => step(0.5)} disabled={writing} />
+            <StepButton large icon={icons.down} label="Kühler" onPress={() => step(-0.5)} disabled={writing} />
+          </View4>}
+      </View4>
     </Card>;
 }
 function HotWaterCard({ tank, onPress }) {
   const theme = useTheme();
-  return <Card onPress={onPress} style={styles3.waterCard}>
-      <Text3 style={[styles3.drop, { color: theme.water }]}>💧</Text3>
-      <View2 style={{ flex: 1 }}>
-        <Text3 style={[styles3.cardTitle, { color: theme.text }]}>
+  return <Card onPress={onPress}>
+      <View4 style={styles6.cardHeader}>
+        <Icon icon={icons.drop} size={16} color={theme.water} />
+        <Text6 style={[type.headline, styles6.flexShrink, { color: theme.text }]} numberOfLines={1}>
           {tank.name}
-          {tank.heatRequest ? "  \u{1F525}" : ""}
-        </Text3>
-        <Text3 style={[styles3.caption, { color: theme.secondary }]}>
-          Soll {formatTemp(tank.setTemperature?.value)} · {modeLabel(HotWaterModes, tank.operatingMode)}
-        </Text3>
-      </View2>
-      <Text3 style={[styles3.mediumTemp, { color: theme.text }]}>{formatTemp(tank.temperature)}</Text3>
+        </Text6>
+        {tank.heatRequest && <Icon icon={icons.flame} size={15} color={theme.accent} />}
+        <View4 style={styles6.flex} />
+        <ModeChip label={tileLabel(hotWaterModeTiles, tank.operatingMode)} icon={tileIcon(hotWaterModeTiles, tank.operatingMode)} />
+        <Icon icon={icons.forward} size={13} color={theme.tertiary} />
+      </View4>
+      <View4 style={styles6.waterBody}>
+        <Text6 style={[type.display, { color: theme.text }]}>{formatTemp(tank.temperature)}</Text6>
+        {tank.setTemperature && <Text6 style={[type.footnote, { color: theme.secondary }]}>Soll {formatTemp(tank.setTemperature.value)}</Text6>}
+      </View4>
     </Card>;
 }
-var styles3 = StyleSheet3.create({
-  content: { padding: 16, gap: 14 },
-  systemCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  systemMode: { alignItems: "flex-end", flexShrink: 1, marginLeft: 12 },
-  systemModeText: { fontSize: 17, fontWeight: "600", textAlign: "right" },
-  caption: { fontSize: 14 },
-  subline: { fontSize: 16, marginTop: 2 },
-  mediumTemp: { fontSize: 32, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  bigTemp: { fontSize: 64, fontWeight: "500", fontVariant: ["tabular-nums"], letterSpacing: -1 },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 8 },
-  cardTitle: { fontSize: 18, fontWeight: "600", flexShrink: 1 },
-  circuitBody: { flexDirection: "row", alignItems: "center", marginTop: 4 },
-  steps: { gap: 10 },
-  waterCard: { flexDirection: "row", alignItems: "center", gap: 12 },
-  drop: { fontSize: 28 },
-  footer: { textAlign: "center", fontSize: 13, marginTop: 4 },
-  grid: { flexDirection: "row", flexWrap: "wrap", rowGap: 10 },
-  gridItem: { width: "50%" },
-  gridValue: { fontSize: 20, fontWeight: "600", fontVariant: ["tabular-nums"] },
-  backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.45)", justifyContent: "center", padding: 24 },
-  sheet: { gap: 10 },
-  sheetTitle: { fontSize: 17, fontWeight: "600", textAlign: "center" }
+var styles6 = StyleSheet6.create({
+  stack: { gap: 12 },
+  flex: { flex: 1 },
+  flexShrink: { flexShrink: 1 },
+  overview: { flexDirection: "row" },
+  metric: { flex: 1, gap: 2 },
+  metricLabel: { flexDirection: "row", alignItems: "center", gap: 5 },
+  chip: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 5,
+    marginTop: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 100
+  },
+  chipText: { fontWeight: "600" },
+  chipInline: { marginTop: 0, paddingHorizontal: 8, paddingVertical: 3 },
+  cardHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  circuitBody: { flexDirection: "row", alignItems: "center", marginTop: 6 },
+  steps: { gap: 8 },
+  waterBody: { marginTop: 6 },
+  footer: { textAlign: "center", marginTop: 4 }
+});
+
+// src/screens/ModesScreen.tsx
+import { StyleSheet as StyleSheet7, Text as Text7 } from "react-native";
+var LOCKED = "Kann \xFCber diese Verbindung nicht umgestellt werden \u2013 bitte am Display.";
+function ModesScreen() {
+  const { snapshot, perform, writing, canWrite, refresh } = useHeating();
+  const theme = useTheme();
+  if (!snapshot) return null;
+  const systemWritable = canWrite(KebaVar.systemOperatingMode);
+  return <Screen title="Heizarten" onRefresh={refresh}>
+      {snapshot.systemOperatingMode !== void 0 && <>
+          <SectionTitle icon={icons.heat}>Anlage</SectionTitle>
+          <ModeTiles
+    options={systemModeTiles}
+    selected={snapshot.systemOperatingMode}
+    disabled={writing || !systemWritable}
+    onSelect={(mode) => perform((c) => commands.setSystemMode(c, mode))}
+  />
+          <Text7 style={[type.footnote, styles7.note, { color: theme.secondary }]}>
+            {systemWritable ? "Warmwasser = Sommerbetrieb ohne Heizung. Standby = alles aus (Frostschutz)." : LOCKED}
+          </Text7>
+        </>}
+
+      {snapshot.heatCircuits.map((circuit) => {
+    const writable = canWrite(KebaVar.heatCircuit.operatingMode(circuit.index));
+    return <ModeSection key={`hc-${circuit.index}`} title={circuit.name} note={writable ? void 0 : LOCKED}>
+            <ModeTiles
+      options={heatCircuitModeTiles}
+      selected={circuit.operatingMode}
+      disabled={writing || !writable}
+      onSelect={(mode) => perform((c) => commands.setHeatCircuitMode(c, circuit.index, mode))}
+    />
+          </ModeSection>;
+  })}
+
+      {snapshot.hotWaterTanks.map((tank) => {
+    const writable = canWrite(KebaVar.hotWaterTank.operatingMode(tank.index));
+    return <ModeSection
+      key={`hw-${tank.index}`}
+      title={tank.name}
+      note={writable ? "Aufheizen = einmalig auf die Solltemperatur bringen." : LOCKED}
+    >
+            <ModeTiles
+      options={hotWaterModeTiles}
+      selected={tank.operatingMode}
+      disabled={writing || !writable}
+      onSelect={(mode) => perform((c) => commands.setHotWaterMode(c, tank.index, mode))}
+    />
+          </ModeSection>;
+  })}
+    </Screen>;
+}
+function ModeSection({ title, note, children }) {
+  const theme = useTheme();
+  return <>
+      <SectionTitle>{title}</SectionTitle>
+      {children}
+      {note && <Text7 style={[type.footnote, styles7.note, { color: theme.secondary }]}>{note}</Text7>}
+    </>;
+}
+var styles7 = StyleSheet7.create({
+  note: { marginTop: 8, marginHorizontal: 18 }
 });
 
 // src/screens/RemoteHost.tsx
-import { useEffect as useEffect2, useRef as useRef2 } from "react";
-import { StyleSheet as StyleSheet4, Text as Text4, View as View3 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useEffect as useEffect3, useRef as useRef3 } from "react";
+import { StyleSheet as StyleSheet8, Text as Text8, View as View5 } from "react-native";
+import { useSafeAreaInsets as useSafeAreaInsets3 } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 var KebaWebView = WebView;
 function RemoteHost() {
@@ -1712,14 +2091,14 @@ function RemoteHost() {
     addDiagnostic,
     diagnostics
   } = useHeating();
-  const webView = useRef2(null);
+  const webView = useRef3(null);
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets3();
   const visible = remoteStage === "login";
-  useEffect2(() => {
+  useEffect3(() => {
     bridge.attach(remoteStage === "connected" ? webView.current : null);
   }, [bridge, remoteStage]);
-  useEffect2(() => {
+  useEffect3(() => {
     if (remoteStage !== "auto") return;
     const timer = setTimeout(() => {
       addDiagnostic("Zeitgrenze erreicht (60 s)");
@@ -1727,12 +2106,12 @@ function RemoteHost() {
     }, 6e4);
     return () => clearTimeout(timer);
   }, [remoteStage, remoteSession, revealPortal, addDiagnostic]);
-  useEffect2(() => {
+  useEffect3(() => {
     if (remoteStage !== "auto" || !portalScript) return;
     const timer = setInterval(() => webView.current?.injectJavaScript(portalScript), 3e3);
     return () => clearInterval(timer);
   }, [remoteStage, remoteSession, portalScript]);
-  const reachedSession = useRef2(-1);
+  const reachedSession = useRef3(-1);
   const hmiReached = (url) => {
     if (remoteStage !== "auto" && remoteStage !== "login") return;
     if (reachedSession.current === remoteSession) return;
@@ -1741,34 +2120,34 @@ function RemoteHost() {
     bridge.attach(webView.current);
     onHmiReached();
   };
-  useEffect2(() => {
+  useEffect3(() => {
     if (remoteStage === "login") webView.current?.injectJavaScript(STOP_PORTAL_AUTOMATION_SCRIPT);
   }, [remoteStage]);
   if (remoteStage === "idle") return null;
-  return <View3
-    style={[StyleSheet4.absoluteFill, visible ? { backgroundColor: theme.background } : styles4.hidden]}
+  return <View5
+    style={[StyleSheet8.absoluteFill, visible ? { backgroundColor: theme.background } : styles8.hidden]}
     pointerEvents={visible ? "auto" : "none"}
   >
-      {visible && <View3 style={[styles4.header, { paddingTop: insets.top + 8, backgroundColor: theme.card }]}>
-          <View3 style={styles4.headerRow}>
-            <Text4 style={[styles4.title, { color: theme.text }]}>KEBA Fernzugriff</Text4>
-            <View3 style={styles4.headerButtons}>
+      {visible && <View5 style={[styles8.header, { paddingTop: insets.top + 8, backgroundColor: theme.card }]}>
+          <View5 style={styles8.headerRow}>
+            <Text8 style={[styles8.title, { color: theme.text }]}>KEBA Fernzugriff</Text8>
+            <View5 style={styles8.headerButtons}>
               <Button title="Neu laden" kind="secondary" onPress={() => webView.current?.reload()} />
               <Button title="Abbrechen" kind="secondary" onPress={cancelRemoteLogin} />
-            </View3>
-          </View3>
-          <Text4 style={[styles4.hint, { color: theme.secondary }]}>
+            </View5>
+          </View5>
+          <Text8 style={[styles8.hint, { color: theme.secondary }]}>
             {loginNotice ?? "Tipp: Trage deine Zugangsdaten in den Einstellungen ein, dann meldet sich die App k\xFCnftig selbst an. Jetzt: anmelden, Anlage aufklappen, \u201EWebHmi\u201C und dann \u201EWWW\u201C antippen."}
-          </Text4>
-          {loginNotice !== void 0 && diagnostics.slice(-5).map((line, i) => <Text4 key={i} style={[styles4.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
+          </Text8>
+          {loginNotice !== void 0 && diagnostics.slice(-5).map((line, i) => <Text8 key={i} style={[styles8.diagnostic, { color: theme.secondary }]} numberOfLines={2}>
                 {line}
-              </Text4>)}
-        </View3>}
+              </Text8>)}
+        </View5>}
       <KebaWebView
     key={remoteSession}
     ref={webView}
     source={{ uri: REMOTE_PORTAL_URL }}
-    style={styles4.flex}
+    style={styles8.flex}
     injectedJavaScript={portalScript}
     sharedCookiesEnabled
     javaScriptEnabled
@@ -1800,9 +2179,9 @@ function RemoteHost() {
       }
     }}
   />
-    </View3>;
+    </View5>;
 }
-var styles4 = StyleSheet4.create({
+var styles8 = StyleSheet8.create({
   flex: { flex: 1 },
   // Volle Größe (damit das Portal normal layoutet), aber unsichtbar und ohne Berührungen.
   hidden: { opacity: 0.01, zIndex: -1 },
@@ -1815,8 +2194,8 @@ var styles4 = StyleSheet4.create({
 });
 
 // src/screens/SettingsScreen.tsx
-import { useState as useState4 } from "react";
-import { Pressable as Pressable3, ScrollView as ScrollView3, StyleSheet as StyleSheet5, Text as Text5, TextInput, View as View4 } from "react-native";
+import { useState as useState5 } from "react";
+import { Pressable as Pressable4, StyleSheet as StyleSheet9, Text as Text9, TextInput, View as View6 } from "react-native";
 function SettingsScreen({
   settings,
   onChange,
@@ -1824,7 +2203,7 @@ function SettingsScreen({
 }) {
   const { connect, disconnect, phase } = useHeating();
   const theme = useTheme();
-  const [draft, setDraft] = useState4(settings);
+  const [draft, setDraft] = useState5(settings);
   const update = (patch) => setDraft((d) => ({ ...d, ...patch }));
   const saveAndConnect = async () => {
     onChange(draft);
@@ -1833,27 +2212,28 @@ function SettingsScreen({
     await connect(draft);
   };
   const canConnect = draft.mode === "remote" || draft.modbusAddress.trim() !== "";
-  return <ScrollView3
-    style={{ backgroundColor: theme.background }}
-    contentContainerStyle={styles5.content}
-    keyboardShouldPersistTaps="handled"
-  >
+  return <Screen title="Einstellungen">
       <SectionTitle>Verbindung</SectionTitle>
-      <View4 style={[styles5.segment, { backgroundColor: theme.pressed }]}>
-        {["modbus", "remote"].map((mode) => <Pressable3
+      <View6 style={[styles9.segment, { backgroundColor: theme.fill }]} accessibilityRole="tablist">
+        {["modbus", "remote"].map((mode) => <Pressable4
     key={mode}
-    onPress={() => update({ mode })}
-    style={[styles5.segmentItem, draft.mode === mode && { backgroundColor: theme.card }]}
+    accessibilityRole="tab"
+    accessibilityState={{ selected: draft.mode === mode }}
+    onPress={() => {
+      if (draft.mode !== mode) haptic.select();
+      update({ mode });
+    }}
+    style={[styles9.segmentItem, draft.mode === mode && [styles9.segmentActive, { backgroundColor: theme.card }]]}
   >
-            <Text5 style={[styles5.segmentText, { color: theme.text }]}>
+            <Text9 style={[type.subhead, styles9.segmentText, { color: theme.text }]}>
               {MODE_LABELS[mode]}
-            </Text5>
-          </Pressable3>)}
-      </View4>
+            </Text9>
+          </Pressable4>)}
+      </View6>
 
       {draft.mode === "modbus" ? <>
           <SectionTitle>Wärmepumpe im Heimnetz (Modbus)</SectionTitle>
-          <Card style={styles5.form}>
+          <Card style={styles9.form}>
             <Field
     value={draft.modbusAddress}
     onChangeText={(modbusAddress) => update({ modbusAddress })}
@@ -1867,18 +2247,18 @@ function SettingsScreen({
     last
   />
           </Card>
-          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+          <Text9 style={[styles9.footnote, { color: theme.secondary }]}>
             Direkt mit der Wärmepumpe – ohne Website, ohne Passwort. Die IP-Adresse steht am Display unter
             Netzwerk → LAN. Die Namen der Heizkreise (kommagetrennt, in der Reihenfolge am Display) legen fest,
             wie viele Heizkreise angezeigt werden. Funktioniert im WLAN zuhause oder per VPN.
-          </Text5>
-          {!isModbusAvailable() && <Text5 style={[styles5.footnote, { color: theme.danger }]}>
+          </Text9>
+          {!isModbusAvailable() && <Text9 style={[styles9.footnote, { color: theme.danger }]}>
               In Expo Go/Snack gibt es keine direkten Netzwerkverbindungen. Modbus funktioniert erst in der
               eigenen App-Version (EAS Build). Zum Testen in Snack „Fernzugriff“ wählen.
-            </Text5>}
+            </Text9>}
         </> : <>
           <SectionTitle>Zugang remote.keba.com</SectionTitle>
-          <Card style={styles5.form}>
+          <Card style={styles9.form}>
             <Field
     value={draft.portalUsername}
     onChangeText={(portalUsername) => update({ portalUsername })}
@@ -1901,22 +2281,22 @@ function SettingsScreen({
     last
   />
           </Card>
-          <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+          <Text9 style={[styles9.footnote, { color: theme.secondary }]}>
             Dieselben Daten wie auf remote.keba.com/app. Die App meldet sich damit unsichtbar selbst an,
             öffnet „WebHmi“ und steuert die Heizung direkt – du siehst die Portal-Seite nicht mehr.
             Das Passwort liegt verschlüsselt im iOS-Schlüsselbund.
-          </Text5>
+          </Text9>
         </>}
 
       <Button
     title={draft.mode === "remote" && !hasPortalCredentials(draft) ? "Ohne Speichern im Portal anmelden" : "Speichern & verbinden"}
-    style={styles5.action}
+    style={styles9.action}
     disabled={!canConnect}
     onPress={saveAndConnect}
   />
 
-      {phase !== "notConnected" && <Button title="Verbindung trennen" kind="danger" style={styles5.action} onPress={disconnect} />}
-    </ScrollView3>;
+      {phase !== "notConnected" && <Button title="Verbindung trennen" kind="danger" style={styles9.action} onPress={disconnect} />}
+    </Screen>;
 }
 var MODE_LABELS = {
   modbus: "Modbus",
@@ -1930,14 +2310,14 @@ function Field({ last, ...props }) {
     autoCorrect={false}
     {...props}
     style={[
-      styles5.input,
-      { color: theme.text, borderBottomColor: theme.separator, borderBottomWidth: last ? 0 : StyleSheet5.hairlineWidth }
+      styles9.input,
+      { color: theme.text, borderBottomColor: theme.separator, borderBottomWidth: last ? 0 : StyleSheet9.hairlineWidth }
     ]}
   />;
 }
-var styles5 = StyleSheet5.create({
-  content: { padding: 16, paddingBottom: 40 },
+var styles9 = StyleSheet9.create({
   segment: { flexDirection: "row", borderRadius: 10, padding: 3 },
+  segmentActive: { shadowColor: "#000", shadowOpacity: 0.12, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
   segmentItem: { flex: 1, borderRadius: 8, paddingVertical: 9, alignItems: "center" },
   segmentText: { fontSize: 15, fontWeight: "600" },
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },
@@ -1947,6 +2327,18 @@ var styles5 = StyleSheet5.create({
 });
 
 // App.tsx
+var TABS = [
+  { key: "home", label: "Start", icon: icons.home },
+  { key: "modes", label: "Heizarten", icon: icons.modes },
+  { key: "data", label: "Daten", icon: icons.data },
+  { key: "settings", label: "Einstellungen", icon: icons.settings }
+];
+var TITLES = {
+  home: "Heizung",
+  modes: "Heizarten",
+  data: "Daten",
+  settings: "Einstellungen"
+};
 function App() {
   return <SafeAreaProvider>
       <HeatingProvider>
@@ -1957,94 +2349,84 @@ function App() {
 function Main() {
   const heating = useHeating();
   const theme = useTheme();
-  const insets = useSafeAreaInsets2();
-  const [settings, setSettings] = useState5(defaultSettings);
-  const [stack, setStack] = useState5([{ name: "dashboard" }]);
-  const route = stack[stack.length - 1];
-  const navigate = (next) => setStack((s) => [...s, next]);
-  const back = () => setStack((s) => s.length > 1 ? s.slice(0, -1) : s);
-  useEffect3(() => {
+  const [settings, setSettings] = useState6(defaultSettings);
+  const [tab, setTab] = useState6("home");
+  const [detail, setDetail] = useState6(null);
+  useEffect4(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
       if (isConfigured(loaded)) void heating.connect(loaded);
     });
   }, []);
-  useEffect3(() => {
+  useEffect4(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state === "active") void heating.refresh();
     });
     return () => sub.remove();
   }, [heating.refresh]);
-  useEffect3(() => {
+  useEffect4(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (heating.remoteStage === "login") {
         heating.cancelRemoteLogin();
         return true;
       }
-      if (stack.length > 1) {
-        back();
+      if (detail) {
+        setDetail(null);
+        return true;
+      }
+      if (tab !== "home") {
+        setTab("home");
         return true;
       }
       return false;
     });
     return () => sub.remove();
-  }, [stack.length, heating.remoteStage, heating.cancelRemoteLogin]);
-  useEffect3(() => {
+  }, [detail, tab, heating.remoteStage, heating.cancelRemoteLogin]);
+  useEffect4(() => {
     if (heating.transientError) {
+      haptic.error();
       Alert.alert("Fehler", heating.transientError, [{ text: "OK", onPress: heating.clearTransientError }]);
     }
   }, [heating.transientError, heating.clearTransientError]);
-  useEffect3(() => {
-    if (heating.phase !== "ready" && route.name !== "settings" && stack.length > 1) {
-      setStack([{ name: "dashboard" }]);
-    }
-  }, [heating.phase, route.name, stack.length]);
+  useEffect4(() => {
+    if (heating.phase !== "ready") setDetail(null);
+  }, [heating.phase]);
   const connect = () => {
     if (isConfigured(settings)) void heating.connect(settings);
-    else navigate({ name: "settings" });
+    else setTab("settings");
   };
-  const title = (() => {
-    switch (route.name) {
-      case "dashboard":
-        return "Heizung";
-      case "settings":
-        return "Einstellungen";
-      case "circuit":
-        return heating.snapshot?.heatCircuits.find((c) => c.index === route.index)?.name ?? "Heizkreis";
-      case "hotWater":
-        return heating.snapshot?.hotWaterTanks.find((t) => t.index === route.index)?.name ?? "Warmwasser";
-    }
-  })();
-  return <View5 style={[styles6.root, { backgroundColor: theme.background }]}>
+  const selectTab = (next) => {
+    if (next === tab && next === "home") setDetail(null);
+    setTab(next);
+  };
+  let content;
+  if (tab === "settings") {
+    content = <SettingsScreen settings={settings} onChange={setSettings} onDone={() => setTab("home")} />;
+  } else if (heating.phase !== "ready") {
+    content = <Screen title={TITLES[tab]}>
+        <ConnectionState connect={connect} openSettings={() => setTab("settings")} />
+      </Screen>;
+  } else if (tab === "modes") {
+    content = <ModesScreen />;
+  } else if (tab === "data") {
+    content = <DataScreen />;
+  } else if (detail?.name === "circuit") {
+    content = <HeatCircuitScreen index={detail.index} onBack={() => setDetail(null)} />;
+  } else if (detail?.name === "hotWater") {
+    content = <HotWaterScreen index={detail.index} onBack={() => setDetail(null)} />;
+  } else {
+    content = <HomeScreen navigate={setDetail} />;
+  }
+  return <View7 style={[styles10.root, { backgroundColor: theme.background }]}>
       <StatusBar style="auto" />
-      <View5 style={[styles6.header, { paddingTop: insets.top + 6, backgroundColor: theme.background }]}>
-        <View5 style={styles6.headerSide}>
-          {stack.length > 1 && <Pressable4 onPress={back} hitSlop={12}>
-              <Text6 style={[styles6.headerButton, { color: theme.accent }]}>‹ Zurück</Text6>
-            </Pressable4>}
-        </View5>
-        <Text6 style={[styles6.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {title}
-        </Text6>
-        <View5 style={[styles6.headerSide, styles6.headerRight]}>
-          {route.name === "dashboard" && <Pressable4 onPress={() => navigate({ name: "settings" })} hitSlop={12} accessibilityLabel="Einstellungen">
-              <Text6 style={[styles6.headerButton, { color: theme.accent }]}>⚙︎</Text6>
-            </Pressable4>}
-        </View5>
-      </View5>
-
-      <View5 style={[styles6.body, { paddingBottom: insets.bottom }]}>
-        {route.name === "settings" ? <SettingsScreen settings={settings} onChange={setSettings} onDone={back} /> : route.name === "circuit" ? <HeatCircuitScreen index={route.index} /> : route.name === "hotWater" ? <HotWaterScreen index={route.index} /> : <Home connect={connect} navigate={navigate} />}
-      </View5>
-
+      <View7 style={styles10.root}>{content}</View7>
+      <TabBar tabs={TABS} active={tab} onChange={selectTab} />
       <RemoteHost />
-    </View5>;
+    </View7>;
 }
-function Home({ connect, navigate }) {
+function ConnectionState({ connect, openSettings }) {
   const { phase, error, progress, remoteStage, revealPortal, diagnostics } = useHeating();
   switch (phase) {
-    case "ready":
-      return <Dashboard navigate={navigate} />;
     case "loading":
       return <StatusView title={progress || "Lade Daten \u2026"} loading>
           {remoteStage === "auto" && <Button
@@ -2055,42 +2437,37 @@ function Home({ connect, navigate }) {
           <Diagnostics lines={diagnostics} />
         </StatusView>;
     case "failed":
-      return <StatusView title="Keine Verbindung" message={error}>
+      return <StatusView title="Keine Verbindung" message={error} icon={icons.wifiOff}>
           <Button title="Erneut versuchen" onPress={connect} />
-          <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: "settings" })} />
+          <Button title="Einstellungen" kind="secondary" onPress={openSettings} />
         </StatusView>;
     case "sessionExpired":
-      return <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen.">
+      return <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen." icon={icons.wifiOff}>
           <Button title="Neu verbinden" onPress={connect} />
         </StatusView>;
-    case "notConnected":
+    default:
       return <StatusView
         title="Nicht verbunden"
         message="Richte einmal die Verbindung ein. Danach verbindet sich die App bei jedem Start von selbst."
+        icon={icons.heat}
       >
-          <Button title="Einrichten" onPress={() => navigate({ name: "settings" })} />
+          <Button title="Einrichten" onPress={openSettings} />
         </StatusView>;
   }
 }
 function Diagnostics({ lines }) {
   const theme = useTheme();
   if (lines.length === 0) return null;
-  return <View5 style={styles6.diagnostics}>
-      {lines.slice(-4).map((line, i) => <Text6 key={i} style={[styles6.diagnosticLine, { color: theme.secondary }]} numberOfLines={3}>
+  return <View7 style={styles10.diagnostics}>
+      {lines.slice(-4).map((line, i) => <Text10 key={i} style={[styles10.diagnosticLine, { color: theme.secondary }]} numberOfLines={3}>
           {line}
-        </Text6>)}
-    </View5>;
+        </Text10>)}
+    </View7>;
 }
-var styles6 = StyleSheet6.create({
+var styles10 = StyleSheet10.create({
   root: { flex: 1 },
   diagnostics: { marginTop: 12, gap: 4 },
-  diagnosticLine: { fontSize: 11 },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, paddingBottom: 10 },
-  headerSide: { width: 90 },
-  headerRight: { alignItems: "flex-end" },
-  headerTitle: { flex: 1, textAlign: "center", fontSize: 17, fontWeight: "600" },
-  headerButton: { fontSize: 17 },
-  body: { flex: 1 }
+  diagnosticLine: { fontSize: 11 }
 });
 export {
   App as default

@@ -1,17 +1,37 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Alert, AppState, BackHandler, Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Alert, AppState, BackHandler, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { DataScreen } from './src/screens/DataScreen';
 import { HeatCircuitScreen, HotWaterScreen } from './src/screens/DetailScreens';
-import { Dashboard } from './src/screens/Dashboard';
+import { HomeScreen } from './src/screens/HomeScreen';
+import { ModesScreen } from './src/screens/ModesScreen';
 import { RemoteHost } from './src/screens/RemoteHost';
-import type { Route } from './src/screens/routes';
+import type { Route, TabKey } from './src/screens/routes';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { Settings, defaultSettings, isConfigured, loadSettings } from './src/settings';
 import { HeatingProvider, useHeating } from './src/store';
 import { Button, StatusView } from './src/ui/components';
+import { haptic } from './src/ui/haptics';
+import { icons } from './src/ui/Icon';
+import { Screen } from './src/ui/Screen';
+import { Tab, TabBar } from './src/ui/TabBar';
 import { useTheme } from './src/ui/theme';
+
+const TABS: Tab<TabKey>[] = [
+  { key: 'home', label: 'Start', icon: icons.home },
+  { key: 'modes', label: 'Heizarten', icon: icons.modes },
+  { key: 'data', label: 'Daten', icon: icons.data },
+  { key: 'settings', label: 'Einstellungen', icon: icons.settings },
+];
+
+const TITLES: Record<TabKey, string> = {
+  home: 'Heizung',
+  modes: 'Heizarten',
+  data: 'Daten',
+  settings: 'Einstellungen',
+};
 
 export default function App() {
   return (
@@ -26,15 +46,12 @@ export default function App() {
 function Main() {
   const heating = useHeating();
   const theme = useTheme();
-  const insets = useSafeAreaInsets();
   const [settings, setSettings] = useState<Settings>(defaultSettings);
-  const [stack, setStack] = useState<Route[]>([{ name: 'dashboard' }]);
-  const route = stack[stack.length - 1];
+  const [tab, setTab] = useState<TabKey>('home');
+  // Unterseite der Startseite (Temperaturen eines Heizkreises bzw. des Warmwassers).
+  const [detail, setDetail] = useState<Route | null>(null);
 
-  const navigate = (next: Route) => setStack((s) => [...s, next]);
-  const back = () => setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));
-
-  // Einstellungen laden und – wenn alles hinterlegt ist – sofort verbinden, ohne dass eine Webseite erscheint.
+  // Einstellungen laden und – wenn alles hinterlegt ist – sofort verbinden.
   useEffect(() => {
     void loadSettings().then((loaded) => {
       setSettings(loaded);
@@ -58,92 +75,79 @@ function Main() {
         heating.cancelRemoteLogin();
         return true;
       }
-      if (stack.length > 1) {
-        back();
+      if (detail) {
+        setDetail(null);
+        return true;
+      }
+      if (tab !== 'home') {
+        setTab('home');
         return true;
       }
       return false;
     });
     return () => sub.remove();
-  }, [stack.length, heating.remoteStage, heating.cancelRemoteLogin]);
+  }, [detail, tab, heating.remoteStage, heating.cancelRemoteLogin]);
 
   useEffect(() => {
     if (heating.transientError) {
+      haptic.error();
       Alert.alert('Fehler', heating.transientError, [{ text: 'OK', onPress: heating.clearTransientError }]);
     }
   }, [heating.transientError, heating.clearTransientError]);
 
-  // Detailseiten ergeben ohne Daten keinen Sinn → zurück zur Übersicht.
+  // Unterseiten ergeben ohne Daten keinen Sinn → zurück zur Startseite.
   useEffect(() => {
-    if (heating.phase !== 'ready' && route.name !== 'settings' && stack.length > 1) {
-      setStack([{ name: 'dashboard' }]);
-    }
-  }, [heating.phase, route.name, stack.length]);
+    if (heating.phase !== 'ready') setDetail(null);
+  }, [heating.phase]);
 
   const connect = () => {
     if (isConfigured(settings)) void heating.connect(settings);
-    else navigate({ name: 'settings' });
+    else setTab('settings');
   };
 
-  const title = (() => {
-    switch (route.name) {
-      case 'dashboard':
-        return 'Heizung';
-      case 'settings':
-        return 'Einstellungen';
-      case 'circuit':
-        return heating.snapshot?.heatCircuits.find((c) => c.index === route.index)?.name ?? 'Heizkreis';
-      case 'hotWater':
-        return heating.snapshot?.hotWaterTanks.find((t) => t.index === route.index)?.name ?? 'Warmwasser';
-    }
-  })();
+  const selectTab = (next: TabKey) => {
+    // Erneutes Tippen auf „Start“ führt zurück zur Übersicht, wie in iOS.
+    if (next === tab && next === 'home') setDetail(null);
+    setTab(next);
+  };
+
+  let content: React.ReactNode;
+  if (tab === 'settings') {
+    content = (
+      <SettingsScreen settings={settings} onChange={setSettings} onDone={() => setTab('home')} />
+    );
+  } else if (heating.phase !== 'ready') {
+    content = (
+      <Screen title={TITLES[tab]}>
+        <ConnectionState connect={connect} openSettings={() => setTab('settings')} />
+      </Screen>
+    );
+  } else if (tab === 'modes') {
+    content = <ModesScreen />;
+  } else if (tab === 'data') {
+    content = <DataScreen />;
+  } else if (detail?.name === 'circuit') {
+    content = <HeatCircuitScreen index={detail.index} onBack={() => setDetail(null)} />;
+  } else if (detail?.name === 'hotWater') {
+    content = <HotWaterScreen index={detail.index} onBack={() => setDetail(null)} />;
+  } else {
+    content = <HomeScreen navigate={setDetail} />;
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: theme.background }]}>
       <StatusBar style="auto" />
-      <View style={[styles.header, { paddingTop: insets.top + 6, backgroundColor: theme.background }]}>
-        <View style={styles.headerSide}>
-          {stack.length > 1 && (
-            <Pressable onPress={back} hitSlop={12}>
-              <Text style={[styles.headerButton, { color: theme.accent }]}>‹ Zurück</Text>
-            </Pressable>
-          )}
-        </View>
-        <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={[styles.headerSide, styles.headerRight]}>
-          {route.name === 'dashboard' && (
-            <Pressable onPress={() => navigate({ name: 'settings' })} hitSlop={12} accessibilityLabel="Einstellungen">
-              <Text style={[styles.headerButton, { color: theme.accent }]}>⚙︎</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-
-      <View style={[styles.body, { paddingBottom: insets.bottom }]}>
-        {route.name === 'settings' ? (
-          <SettingsScreen settings={settings} onChange={setSettings} onDone={back} />
-        ) : route.name === 'circuit' ? (
-          <HeatCircuitScreen index={route.index} />
-        ) : route.name === 'hotWater' ? (
-          <HotWaterScreen index={route.index} />
-        ) : (
-          <Home connect={connect} navigate={navigate} />
-        )}
-      </View>
-
+      <View style={styles.root}>{content}</View>
+      <TabBar tabs={TABS} active={tab} onChange={selectTab} />
       <RemoteHost />
     </View>
   );
 }
 
-function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route) => void }) {
+function ConnectionState({ connect, openSettings }: { connect: () => void; openSettings: () => void }) {
   const { phase, error, progress, remoteStage, revealPortal, diagnostics } = useHeating();
 
   switch (phase) {
-    case 'ready':
-      return <Dashboard navigate={navigate} />;
     case 'loading':
       return (
         <StatusView title={progress || 'Lade Daten …'} loading>
@@ -159,24 +163,25 @@ function Home({ connect, navigate }: { connect: () => void; navigate: (r: Route)
       );
     case 'failed':
       return (
-        <StatusView title="Keine Verbindung" message={error}>
+        <StatusView title="Keine Verbindung" message={error} icon={icons.wifiOff}>
           <Button title="Erneut versuchen" onPress={connect} />
-          <Button title="Einstellungen" kind="secondary" onPress={() => navigate({ name: 'settings' })} />
+          <Button title="Einstellungen" kind="secondary" onPress={openSettings} />
         </StatusView>
       );
     case 'sessionExpired':
       return (
-        <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen.">
+        <StatusView title="Sitzung abgelaufen" message="Der Fernzugriff wurde geschlossen." icon={icons.wifiOff}>
           <Button title="Neu verbinden" onPress={connect} />
         </StatusView>
       );
-    case 'notConnected':
+    default:
       return (
         <StatusView
           title="Nicht verbunden"
           message="Richte einmal die Verbindung ein. Danach verbindet sich die App bei jedem Start von selbst."
+          icon={icons.heat}
         >
-          <Button title="Einrichten" onPress={() => navigate({ name: 'settings' })} />
+          <Button title="Einrichten" onPress={openSettings} />
         </StatusView>
       );
   }
@@ -201,10 +206,4 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   diagnostics: { marginTop: 12, gap: 4 },
   diagnosticLine: { fontSize: 11 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 10 },
-  headerSide: { width: 90 },
-  headerRight: { alignItems: 'flex-end' },
-  headerTitle: { flex: 1, textAlign: 'center', fontSize: 17, fontWeight: '600' },
-  headerButton: { fontSize: 17 },
-  body: { flex: 1 },
 });

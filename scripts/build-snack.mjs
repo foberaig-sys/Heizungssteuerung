@@ -12,6 +12,10 @@ const external = [
   'expo-secure-store',
   'expo-status-bar',
   'react-native-tcp-socket',
+  'expo-symbols',
+  'expo-blur',
+  'expo-haptics',
+  '@expo/vector-icons/Ionicons',
 ];
 
 const result = await build({
@@ -29,6 +33,7 @@ const result = await build({
 const deps = JSON.parse(readFileSync('package.json', 'utf8')).dependencies;
 const versions = external
   .filter((name) => !['react', 'react-native'].includes(name))
+  .map((name) => name.replace(/\/Ionicons$/, ''))
   .map((name) => `//   ${name}@${deps[name]}`)
   .join('\n');
 

@@ -1,136 +1,98 @@
-import { ScrollView, StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 
 import { commands } from '../keba/service';
-import {
-  HeatCircuitModes,
-  HotWaterModes,
-  KebaVar,
-  modeLabel,
-  selectableHeatCircuitModes,
-  selectableHotWaterModes,
-} from '../keba/variables';
 import { useHeating } from '../store';
-import { Card, OptionList, Row, SectionTitle, SetpointEditor } from '../ui/components';
-import { formatTemp, useTheme } from '../ui/theme';
+import { Card, SectionTitle, SetpointEditor } from '../ui/components';
+import { Screen } from '../ui/Screen';
+import { type, useTheme } from '../ui/theme';
 
-const MODE_LOCKED_NOTE =
-  'Die Betriebsart wird über Modbus angezeigt, das Umstellen ist hier noch nicht freigeschaltet (bitte am Display).';
-
-export function HeatCircuitScreen({ index }: { index: number }) {
-  const { snapshot, perform, writing, canWrite } = useHeating();
-  const modeWritable = canWrite(KebaVar.heatCircuit.operatingMode(index));
+/** Temperaturen eines Heizkreises einstellen. Die Betriebsart liegt im Tab „Heizarten“. */
+export function HeatCircuitScreen({ index, onBack }: { index: number; onBack: () => void }) {
+  const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const circuit = snapshot?.heatCircuits.find((c) => c.index === index);
   if (!circuit) return null;
 
-  // Aktuelle Betriebsart immer anzeigen, auch wenn sie in der App nicht wählbar ist (z. B. Urlaub).
-  const modes = HeatCircuitModes.filter(
-    (m) => selectableHeatCircuitModes.includes(m.value) || m.value === circuit.operatingMode,
-  );
+  const editors = [
+    circuit.normalSetTemperature && {
+      key: 'normal',
+      title: 'Komfort (Sonne)',
+      setpoint: circuit.normalSetTemperature,
+      unit: '°',
+      commit: (v: number) => perform((c) => commands.setNormalTemperature(c, index, v)),
+    },
+    circuit.reducedSetTemperature && {
+      key: 'reduced',
+      title: 'Absenkung (Mond)',
+      setpoint: circuit.reducedSetTemperature,
+      unit: '°',
+      commit: (v: number) => perform((c) => commands.setReducedTemperature(c, index, v)),
+    },
+    circuit.offset && {
+      key: 'offset',
+      title: 'Korrektur',
+      setpoint: circuit.offset,
+      unit: ' K',
+      commit: (v: number) => perform((c) => commands.setOffset(c, index, v)),
+    },
+  ].filter((e): e is NonNullable<typeof e> => Boolean(e));
 
   return (
-    <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.content}>
-      <SectionTitle>Status</SectionTitle>
-      <Card style={styles.listCard}>
-        <Row label="Aktueller Sollwert" value={formatTemp(circuit.currentSetTemperature)} />
-        {circuit.roomTemperature !== undefined && <Row label="Raumtemperatur" value={formatTemp(circuit.roomTemperature)} />}
-        {circuit.roomHumidity !== undefined && <Row label="Luftfeuchte" value={`${Math.round(circuit.roomHumidity)} %`} />}
-        {circuit.flowSetTemperature !== undefined && <Row label="Vorlauf-Soll" value={formatTemp(circuit.flowSetTemperature)} />}
-        <Row label="Heizanforderung" value={circuit.heatRequest ? 'Ja' : 'Nein'} last />
-      </Card>
-
-      <SectionTitle>Betriebsart</SectionTitle>
-      <OptionList
-        options={modes}
-        selected={circuit.operatingMode}
-        disabled={writing || !modeWritable}
-        onSelect={(mode) => perform((c) => commands.setHeatCircuitMode(c, index, mode))}
-      />
-      {!modeWritable && <Text style={[styles.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text>}
-
+    <Screen title={circuit.name} onBack={onBack}>
       <SectionTitle>Temperaturen</SectionTitle>
-      <Card style={styles.listCard}>
-        {circuit.normalSetTemperature && (
+      <Card style={styles.list}>
+        {editors.map((e, i) => (
           <SetpointEditor
-            title="Komfort (Tag)"
-            setpoint={circuit.normalSetTemperature}
+            key={e.key}
+            title={e.title}
+            setpoint={e.setpoint}
             step={0.5}
+            unit={e.unit}
             disabled={writing}
-            onCommit={(v) => perform((c) => commands.setNormalTemperature(c, index, v))}
+            last={i === editors.length - 1}
+            onCommit={e.commit}
           />
-        )}
-        {circuit.reducedSetTemperature && (
-          <SetpointEditor
-            title="Absenkung (Nacht)"
-            setpoint={circuit.reducedSetTemperature}
-            step={0.5}
-            disabled={writing}
-            onCommit={(v) => perform((c) => commands.setReducedTemperature(c, index, v))}
-          />
-        )}
-        {circuit.offset && (
-          <SetpointEditor
-            title="Korrektur"
-            setpoint={circuit.offset}
-            step={0.5}
-            unit=" K"
-            disabled={writing}
-            onCommit={(v) => perform((c) => commands.setOffset(c, index, v))}
-          />
-        )}
+        ))}
       </Card>
-      <Text style={[styles.footnote, { color: theme.secondary }]}>
-        Die Korrektur entspricht den Pfeiltasten auf dem Startbildschirm der Heizung. Aktuell:{' '}
-        {modeLabel(HeatCircuitModes, circuit.operatingMode)}.
+      <Text style={[type.footnote, styles.note, { color: theme.secondary }]}>
+        Komfort gilt bei Sonne und in den Komfortzeiten der Automatik, Absenkung bei Mond und nachts. Die
+        Betriebsart stellst du unter „Heizarten“ um.
       </Text>
-    </ScrollView>
+    </Screen>
   );
 }
 
-export function HotWaterScreen({ index }: { index: number }) {
-  const { snapshot, perform, writing, canWrite } = useHeating();
-  const modeWritable = canWrite(KebaVar.hotWaterTank.operatingMode(index));
+export function HotWaterScreen({ index, onBack }: { index: number; onBack: () => void }) {
+  const { snapshot, perform, writing } = useHeating();
   const theme = useTheme();
   const tank = snapshot?.hotWaterTanks.find((t) => t.index === index);
   if (!tank) return null;
 
   return (
-    <ScrollView style={{ backgroundColor: theme.background }} contentContainerStyle={styles.content}>
-      <SectionTitle>Status</SectionTitle>
-      <Card style={styles.listCard}>
-        <Row label="Temperatur oben" value={formatTemp(tank.temperature)} />
-        <Row label="Wird geheizt" value={tank.heatRequest ? 'Ja' : 'Nein'} last />
-      </Card>
-
-      <SectionTitle>Betriebsart</SectionTitle>
-      <OptionList
-        options={HotWaterModes.filter((m) => selectableHotWaterModes.includes(m.value))}
-        selected={tank.operatingMode}
-        disabled={writing || !modeWritable}
-        onSelect={(mode) => perform((c) => commands.setHotWaterMode(c, index, mode))}
-      />
-      {!modeWritable && <Text style={[styles.footnote, { color: theme.secondary }]}>{MODE_LOCKED_NOTE}</Text>}
-
+    <Screen title={tank.name} onBack={onBack}>
       {tank.setTemperature && (
         <>
           <SectionTitle>Temperatur</SectionTitle>
-          <Card style={styles.listCard}>
+          <Card style={styles.list}>
             <SetpointEditor
               title="Solltemperatur"
               setpoint={tank.setTemperature}
               step={1}
               disabled={writing}
+              last
               onCommit={(v) => perform((c) => commands.setHotWaterTemperature(c, index, v))}
             />
           </Card>
         </>
       )}
-    </ScrollView>
+      <Text style={[type.footnote, styles.note, { color: theme.secondary }]}>
+        Die Betriebsart (z. B. einmal aufheizen) stellst du unter „Heizarten“ um.
+      </Text>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  content: { padding: 16, paddingBottom: 40 },
-  listCard: { paddingVertical: 4 },
-  footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 16 },
+  list: { paddingVertical: 2 },
+  note: { marginTop: 8, marginHorizontal: 18 },
 });
