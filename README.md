@@ -71,7 +71,7 @@ Modbus (direkt im Heimnetz, ohne Website und ohne Passwort) braucht eine direkte
 in Expo Go/Snack nicht, sondern nur in einer eigenen App-Version. Gebaut wird in der Cloud von Expo (EAS),
 ein Mac ist nicht nötig, wohl aber ein **Apple Developer Konto**.
 
-1. In [app.json](app.json) `ios.bundleIdentifier` auf etwas Eigenes ändern, z. B. `at.deinname.heizung`.
+1. In [app.json](app.json) `ios.bundleIdentifier` ist auf `at.oberaigner.heizung` gesetzt (bei Bedarf ändern).
 2. Kostenloses Konto auf <https://expo.dev> anlegen und anmelden:
 
 ```bash
