@@ -1445,8 +1445,58 @@ var styles4 = StyleSheet4.create({
 });
 
 // src/screens/SettingsScreen.tsx
-import { useState as useState4 } from "react";
+import { useRef as useRef3, useState as useState4 } from "react";
 import { Pressable as Pressable3, ScrollView as ScrollView3, StyleSheet as StyleSheet5, Text as Text5, TextInput, View as View4 } from "react-native";
+
+// src/keba/discovery.ts
+var DEFAULT_PORTS = [80, 8080];
+function subnetPrefix(address) {
+  const match = /(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}/.exec(address);
+  if (!match) return void 0;
+  const parts = match.slice(1, 4).map(Number);
+  return parts.every((n) => n >= 0 && n <= 255) ? parts.join(".") : void 0;
+}
+function candidateUrls(prefix, ports = DEFAULT_PORTS) {
+  const urls = [];
+  for (const port of ports) {
+    for (let host = 1; host <= 254; host++) {
+      urls.push(port === 80 ? `http://${prefix}.${host}` : `http://${prefix}.${host}:${port}`);
+    }
+  }
+  return urls;
+}
+async function probeController(url, timeoutMs = 2e3) {
+  try {
+    const values = await new KebaClient(directPost(url, void 0, timeoutMs)).read([KebaVar.outdoorTemperature]);
+    const variable = values[KebaVar.outdoorTemperature];
+    if (!variable) return void 0;
+    const temperature = Number(variable.value);
+    return { url, outdoorTemperature: Number.isFinite(temperature) ? temperature : void 0 };
+  } catch {
+    return void 0;
+  }
+}
+async function scanForControllers(prefix, options = {}) {
+  const { ports = DEFAULT_PORTS, concurrency = 32, timeoutMs = 2e3, onProgress, isCancelled } = options;
+  const probe = options.probe ?? probeController;
+  const urls = candidateUrls(prefix, ports);
+  const found = [];
+  let next = 0;
+  let done = 0;
+  const worker = async () => {
+    while (next < urls.length && !isCancelled?.()) {
+      const url = urls[next++];
+      const result = await probe(url, timeoutMs);
+      if (result) found.push(result);
+      done++;
+      onProgress?.(done, urls.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+  return found;
+}
+
+// src/screens/SettingsScreen.tsx
 function SettingsScreen({
   settings,
   onChange,
@@ -1537,6 +1587,10 @@ function SettingsScreen({
             Direkt mit dem Regler – am schnellsten und ohne Hersteller-Portal. Funktioniert im WLAN zuhause
             oder unterwegs über ein eigenes VPN (z. B. FRITZ!Box, WireGuard, Tailscale).
           </Text5>
+          <ControllerSearch
+    address={draft.localAddress}
+    onSelect={(url) => update({ localAddress: url.replace(/^http:\/\//, "") })}
+  />
         </>}
 
       <Button
@@ -1548,6 +1602,44 @@ function SettingsScreen({
 
       {phase !== "notConnected" && <Button title="Verbindung trennen" kind="danger" style={styles5.action} onPress={disconnect} />}
     </ScrollView3>;
+}
+function ControllerSearch({ address, onSelect }) {
+  const theme = useTheme();
+  const [progress, setProgress] = useState4();
+  const [results, setResults] = useState4();
+  const cancelled = useRef3(false);
+  const prefix = subnetPrefix(address) ?? "192.168.0";
+  const searching = progress !== void 0;
+  const search = async () => {
+    cancelled.current = false;
+    setResults(void 0);
+    setProgress({ done: 0, total: 1 });
+    const found = await scanForControllers(prefix, {
+      onProgress: (done, total) => setProgress({ done, total }),
+      isCancelled: () => cancelled.current
+    });
+    setProgress(void 0);
+    setResults(found);
+  };
+  return <View4 style={styles5.search}>
+      {searching ? <>
+          <Text5 style={[styles5.searchText, { color: theme.text }]}>
+            Suche in {prefix}.x … {Math.round(progress.done / progress.total * 100)} %
+          </Text5>
+          <Button title="Suche abbrechen" kind="secondary" onPress={() => cancelled.current = true} />
+        </> : <Button title={`Regler im WLAN suchen (${prefix}.x)`} kind="secondary" onPress={search} />}
+      {results?.length === 0 && <Text5 style={[styles5.footnote, { color: theme.secondary }]}>
+          Kein Regler gefunden. Ist das Handy im selben WLAN wie die Wärmepumpe (nicht im Gäste-WLAN)?
+          Hat iOS gefragt, ob die App „Geräte im lokalen Netzwerk“ finden darf? Das muss erlaubt sein
+          (Einstellungen → Datenschutz → Lokales Netzwerk → Expo Go).
+        </Text5>}
+      {results?.map((r) => <Card key={r.url} onPress={() => onSelect(r.url)} style={styles5.result}>
+          <Text5 style={[styles5.searchText, { color: theme.text }]}>Gefunden: {r.url}</Text5>
+          <Text5 style={[styles5.footnote, { color: theme.secondary, marginHorizontal: 0 }]}>
+            Außentemperatur {r.outdoorTemperature?.toFixed(1).replace(".", ",") ?? "\u2013"}° · antippen zum Übernehmen
+          </Text5>
+        </Card>)}
+    </View4>;
 }
 function Field({ last, ...props }) {
   const theme = useTheme();
@@ -1570,7 +1662,10 @@ var styles5 = StyleSheet5.create({
   footnote: { fontSize: 13, marginTop: 8, marginHorizontal: 4 },
   form: { paddingVertical: 0 },
   input: { fontSize: 17, paddingVertical: 14 },
-  action: { marginTop: 20 }
+  action: { marginTop: 20 },
+  search: { marginTop: 16, gap: 10 },
+  searchText: { fontSize: 16, fontWeight: "500" },
+  result: { gap: 2 }
 });
 
 // App.tsx
