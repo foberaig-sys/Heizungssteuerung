@@ -10,7 +10,11 @@
       "supportsTablet": false,
       "bundleIdentifier": "at.oberaigner.heizung",
       "infoPlist": {
-        "NSLocalNetworkUsageDescription": "Die App verbindet sich mit dem Regler deiner Wärmepumpe im Heimnetz."
+        "NSLocalNetworkUsageDescription": "Die App verbindet sich mit dem Regler deiner Wärmepumpe im Heimnetz.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
