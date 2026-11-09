@@ -121,8 +121,9 @@ zweier Scans (`modbus_scan.py --compare`) eindeutig zugeordnet.
 | 705 | Vorlauf (`heatpump[0].TempHeatFlow`) | ×0,1 °C | passt zu Statusbericht |
 | 708 / 709 | Quelle Eingang / Ausgang (Luft) | ×0,1 °C | passt zu Display |
 | 710 | Rücklauf (`heatpump[0].TempHeatReflux`) | ×0,1 °C | passt zu Display |
-| 711 / 712 | Lüfter / Umwälzpumpe | % | passt zu Display |
-| 706 / 707 / 718 | Leistungen bzw. Kompressor | ? | ungeklärt |
+| 707 | Leistungsaufnahme | W | ~3 W im Stillstand, 380–940 W im Betrieb (Scans); App: „läuft“ ab 100 W |
+| 711 / 712 | Lüfter / Umwälzpumpe | % | passt zu Display; 0 im Stillstand |
+| 706 / 718 | Kompressor (?) | ? | ungeklärt, 0 im Stillstand |
 | 1500 | Anlagenbetriebsart: 0 Standby, 1 Warmwasser, 2 Automatik heizen | – | **bestätigt** (2→1) |
 | 1502 | Außentemperatur | ×0,1 °C | bestätigt (= Display) |
 

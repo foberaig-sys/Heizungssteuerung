@@ -32,6 +32,8 @@ export const icons = {
   check: { sf: 'checkmark', fallback: 'checkmark' },
   thermometer: { sf: 'thermometer.medium', fallback: 'thermometer' },
   wind: { sf: 'wind', fallback: 'leaf-outline' },
+  // Rotationssymmetrisch – dreht sich sauber um die Mitte, solange die Wärmepumpe läuft.
+  fan: { sf: 'fanblades.fill', fallback: 'sync' },
   wifiOff: { sf: 'wifi.exclamationmark', fallback: 'cloud-offline' },
 } satisfies Record<string, IconSpec>;
 

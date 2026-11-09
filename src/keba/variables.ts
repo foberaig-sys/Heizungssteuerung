@@ -33,6 +33,16 @@ export const KebaVar = {
     sourceOutTemperature: (i: number) => `${P}.heatpump[${i}].TempSourceOut.values.actValue`,
   },
 
+  /**
+   * Betriebswerte der Wärmepumpe. Die Namen sind eigene Schlüssel für die Modbus-Register 707/711/712 –
+   * die Web-HMI kennt sie nicht, deshalb liest loadSnapshot() sie getrennt und fehlertolerant.
+   */
+  heatPumpRun: {
+    power: (i: number) => `mtec.heatpump[${i}].powerW`,
+    fan: (i: number) => `mtec.heatpump[${i}].fanPercent`,
+    pump: (i: number) => `mtec.heatpump[${i}].pumpPercent`,
+  },
+
   bufferTank: {
     topTemperature: (i: number) => `${P}.bufferTank[${i}].topTemp.values.actValue`,
     midTemperature: (i: number) => `${P}.bufferTank[${i}].midTemp.values.actValue`,

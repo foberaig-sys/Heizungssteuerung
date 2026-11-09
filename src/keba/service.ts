@@ -38,6 +38,11 @@ export interface HeatPumpStatus {
   sourceOutTemperature?: number;
   bufferTopTemperature?: number;
   bufferMidTemperature?: number;
+  /** Aktuelle Leistungsaufnahme in W. */
+  power?: number;
+  /** Lüfter bzw. Umwälzpumpe in %. */
+  fan?: number;
+  pump?: number;
 }
 
 export interface HeatingSnapshot {
@@ -63,6 +68,9 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
   names.push(...allHeatPumpVars(0));
 
   const v = await client.read(names, true);
+  // Betriebswerte gibt es nur über Modbus; scheitert das Lesen, fehlt eben die Laufanzeige.
+  const RUN = KebaVar.heatPumpRun;
+  const run = await client.read(Object.values(RUN).map((f) => f(0))).catch(() => ({}) as typeof v);
   const HC = KebaVar.heatCircuit;
   const HW = KebaVar.hotWaterTank;
 
@@ -102,6 +110,9 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
     sourceOutTemperature: toNumber(v[HP.sourceOutTemperature(0)]),
     bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
     bufferMidTemperature: toNumber(v[BT.midTemperature(0)]),
+    power: toNumber(run[RUN.power(0)]),
+    fan: toNumber(run[RUN.fan(0)]),
+    pump: toNumber(run[RUN.pump(0)]),
   };
 
   return {
@@ -112,6 +123,20 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
     hotWaterTanks,
     fetchedAt: now,
   };
+}
+
+// MARK: Läuft die Wärmepumpe?
+
+/** Im Stillstand zieht die Wärmepumpe nur ein paar Watt (Scans: 3 W), im Betrieb mehrere hundert. */
+const RUNNING_POWER_W = 100;
+
+/**
+ * true = Kompressor läuft, false = steht, undefined = unbekannt (keine Betriebswerte).
+ * Der Lüfter einer Luft-Wärmepumpe dreht nur im Betrieb – das zählt auch, falls die Leistung fehlt.
+ */
+export function isHeatPumpRunning(hp: HeatPumpStatus | undefined): boolean | undefined {
+  if (hp?.power === undefined && hp?.fan === undefined) return undefined;
+  return (hp.power ?? 0) >= RUNNING_POWER_W || (hp.fan ?? 0) > 0;
 }
 
 // MARK: Welcher Sollwert gilt gerade?

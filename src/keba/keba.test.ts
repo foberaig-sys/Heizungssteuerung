@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 import { WebViewBridge, buildFetchScript, hmiBaseUrl } from './bridge';
 import { KebaClient, KebaError, RawPost, formatNumber, parseVariables, toBool, validate } from './client';
-import { HeatCircuitStatus, activeSetpoint, commands, loadSnapshot } from './service';
+import { HeatCircuitStatus, activeSetpoint, commands, isHeatPumpRunning, loadSnapshot } from './service';
 
 const P = 'APPL.CtrlAppl.sParam';
 
@@ -170,4 +170,12 @@ test('Pfeiltasten verstellen den gerade gültigen Sollwert', () => {
   );
   // Web-HMI mit Korrektur: wie an der HMI
   assert.equal(activeSetpoint({ ...base, offset: { value: 0 }, operatingMode: 1 }), 'offset');
+});
+
+test('erkennt, ob die Wärmepumpe läuft (Werte aus den Scans)', () => {
+  assert.equal(isHeatPumpRunning({ power: 3, fan: 0, pump: 0 }), false); // Stillstand
+  assert.equal(isHeatPumpRunning({ power: 804, fan: 48, pump: 53 }), true);
+  assert.equal(isHeatPumpRunning({ fan: 50 }), true);
+  assert.equal(isHeatPumpRunning({ flowTemperature: 40 }), undefined);
+  assert.equal(isHeatPumpRunning(undefined), undefined);
 });

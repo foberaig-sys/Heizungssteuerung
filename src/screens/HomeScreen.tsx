@@ -3,11 +3,12 @@ import { useRouter } from 'expo-router';
 import { Image, StyleSheet, Text, View, useColorScheme } from 'react-native';
 
 import type { HeatCircuitStatus, HotWaterStatus } from '../keba/service';
-import { ActiveSetpoint, activeSetpoint, commands } from '../keba/service';
+import { ActiveSetpoint, activeSetpoint, commands, isHeatPumpRunning } from '../keba/service';
 import { useHeating } from '../store';
 import { Card, StepButton } from '../ui/components';
 import { Icon, IconSpec, icons } from '../ui/Icon';
 import { Screen } from '../ui/Screen';
+import { HeatPumpStatusRow } from './HeatPumpStatus';
 import { formatTemp, type, useTheme } from '../ui/theme';
 import { heatCircuitModeTiles, hotWaterModeTiles, systemModeTiles, tileIcon, tileLabel } from './modeOptions';
 
@@ -60,9 +61,16 @@ function OverviewCard() {
   const theme = useTheme();
   if (!snapshot) return null;
   const systemIcon = tileIcon(systemModeTiles, snapshot.systemOperatingMode);
+  const hasRunState = isHeatPumpRunning(snapshot.heatPump) !== undefined;
 
   return (
     <Card>
+      {hasRunState && (
+        <>
+          <HeatPumpStatusRow heatPump={snapshot.heatPump} />
+          <View style={[styles.divider, { backgroundColor: theme.separator }]} />
+        </>
+      )}
       <View style={styles.overview}>
         <Metric label="Außen" value={formatTemp(snapshot.outdoorTemperature)} icon={icons.thermometer} />
         {snapshot.heatPump?.bufferTopTemperature !== undefined && (
@@ -203,6 +211,7 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   flexShrink: { flexShrink: 1 },
   overview: { flexDirection: 'row' },
+  divider: { height: StyleSheet.hairlineWidth, marginVertical: 14 },
   metric: { flex: 1, gap: 2 },
   metricLabel: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   chip: {

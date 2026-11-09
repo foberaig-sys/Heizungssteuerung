@@ -6,7 +6,9 @@ import { IconSpec, icons } from '../ui/Icon';
 import { Screen } from '../ui/Screen';
 import { formatTemp, type, useTheme } from '../ui/theme';
 
-type RowData = { label: string; value: number | undefined; icon?: IconSpec };
+type RowData = { label: string; value: number | undefined; icon?: IconSpec; unit?: string };
+
+const formatValue = (r: RowData) => (r.unit ? `${Math.round(r.value!)} ${r.unit}` : formatTemp(r.value));
 
 /** Messwerte zum Nachschauen – nichts davon lässt sich hier verstellen. */
 export function DataScreen() {
@@ -24,6 +26,9 @@ export function DataScreen() {
         { label: 'Rücklauf', value: hp?.returnTemperature },
         { label: 'Luft rein', value: hp?.sourceInTemperature },
         { label: 'Luft raus', value: hp?.sourceOutTemperature },
+        { label: 'Leistung', value: hp?.power, unit: 'W' },
+        { label: 'Lüfter', value: hp?.fan, unit: '%' },
+        { label: 'Umwälzpumpe', value: hp?.pump, unit: '%' },
       ],
     },
     {
@@ -68,7 +73,7 @@ export function DataScreen() {
         return (
           <SectionBlock key={section.title} title={section.title} icon={section.icon}>
             {rows.map((r, i) => (
-              <Row key={r.label} label={r.label} value={formatTemp(r.value)} last={i === rows.length - 1} />
+              <Row key={r.label} label={r.label} value={formatValue(r)} last={i === rows.length - 1} />
             ))}
           </SectionBlock>
         );

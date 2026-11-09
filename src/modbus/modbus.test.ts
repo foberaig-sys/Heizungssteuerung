@@ -4,7 +4,7 @@ import { Server, Socket, createServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 
-import { commands, loadSnapshot } from '../keba/service';
+import { commands, isHeatPumpRunning, loadSnapshot } from '../keba/service';
 import { ModbusTcpClient, SocketFactory } from './modbusClient';
 import { ModbusTransport, groupAddresses } from './modbusTransport';
 
@@ -66,7 +66,7 @@ const scanValues = () =>
     [2, 220], [3, 220], [4, 220], [5, 195], [7, 1], [8, 1],
     [52, 210], [53, 210], [54, 210], [55, 185], [57, 1], [58, 0],
     [401, 476], [402, 480], [403, 1],
-    [601, 425], [603, 385], [705, 423], [708, 92], [709, 84], [710, 393],
+    [601, 425], [603, 385], [705, 423], [707, 382], [708, 92], [709, 84], [710, 393], [711, 50], [712, 75],
     [1500, 2], [1502, 87],
   ]);
 
@@ -123,7 +123,11 @@ test('Heizungs-Zustand kommt über Modbus wie über die WebHMI', async () => {
       sourceOutTemperature: 8.4,
       bufferTopTemperature: 42.5,
       bufferMidTemperature: 38.5,
+      power: 382,
+      fan: 50,
+      pump: 75,
     });
+    assert.equal(isHeatPumpRunning(s.heatPump), true);
 
     await commands.setNormalTemperature(transport, 0, 22.5);
     await commands.setHotWaterTemperature(transport, 0, 49);
