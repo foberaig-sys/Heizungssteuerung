@@ -34,13 +34,15 @@ export const KebaVar = {
   },
 
   /**
-   * Betriebswerte der Wärmepumpe. Die Namen sind eigene Schlüssel für die Modbus-Register 707/711/712 –
-   * die Web-HMI kennt sie nicht, deshalb liest loadSnapshot() sie getrennt und fehlertolerant.
+   * Betriebswerte der Wärmepumpe (Namen aus dem Statusbericht, Datenlogger der Steuerung). Lüfter, Pumpe und
+   * Kompressor sind Anteile 0…1. Über Modbus liegen Leistung/Lüfter/Pumpe in 707/711/712, den Kompressor
+   * gibt es dort nicht. loadSnapshot() liest sie getrennt und fehlertolerant.
    */
   heatPumpRun: {
-    power: (i: number) => `mtec.heatpump[${i}].powerW`,
-    fan: (i: number) => `mtec.heatpump[${i}].fanPercent`,
-    pump: (i: number) => `mtec.heatpump[${i}].pumpPercent`,
+    power: (i: number) => `${P}.heatpump[${i}].ElectricEnergyMeter.values.power`,
+    fan: (i: number) => `${P}.heatpump[${i}].Source.values.setValueScaled`,
+    pump: (i: number) => `${P}.heatpump[${i}].CircPump.values.setValueScaled`,
+    compressor: (i: number) => `${P}.heatpump[${i}].Compressor.values.setValueScaled`,
   },
 
   bufferTank: {

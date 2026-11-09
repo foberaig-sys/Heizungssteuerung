@@ -58,10 +58,11 @@ export function buildRegisterMap(circuitCount: number): Map<string, RegisterMapp
   map.set(HP.sourceInTemperature(0), temperature(708));
   map.set(HP.sourceOutTemperature(0), temperature(709));
   // Betrieb: 707 = Leistung in W (laut evcc-Vorlage; ~3 W im Stillstand), 711/712 = Lüfter/Pumpe in %.
+  // Die Web-HMI liefert Lüfter/Pumpe als Anteil 0…1 – deshalb hier ebenfalls auf 0…1 umrechnen.
   const RUN = KebaVar.heatPumpRun;
   map.set(RUN.power(0), raw(707));
-  map.set(RUN.fan(0), raw(711));
-  map.set(RUN.pump(0), raw(712));
+  map.set(RUN.fan(0), { address: 711, scale: 0.01 });
+  map.set(RUN.pump(0), { address: 712, scale: 0.01 });
   map.set(KebaVar.bufferTank.topTemperature(0), temperature(601));
   map.set(KebaVar.bufferTank.midTemperature(0), temperature(603));
   return map;

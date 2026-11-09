@@ -61,6 +61,10 @@ Die Pfeiltasten der HMI schreiben genau diese Korrektur, in Schritten von ±0,5 
 | `hotWaterTank[i].param.normalSetTempMax.value` | Warmwasser-Soll |
 | `hotWaterTank[i].param.operatingMode` | 0 Aus, 1 Auto, 2 Ein, 3 Einmal aufheizen |
 | `heatpump[i].values.heatpumpState` | 0 Standby, 1 Vorlauf, 2 Heizen, 3 Abtauen, 4 Kühlen, … 8 Fehler |
+| `heatpump[i].ElectricEnergyMeter.values.power` | aktuelle Leistungsaufnahme in W (Statusbericht: 636 W im Betrieb) |
+| `heatpump[i].Compressor.values.setValueScaled` | Kompressor-Ansteuerung, Anteil 0…1 |
+| `heatpump[i].Source.values.setValueScaled` | Lüfter, Anteil 0…1 |
+| `heatpump[i].CircPump.values.setValueScaled` | Umwälzpumpe, Anteil 0…1 |
 
 ## Weitere Endpunkte aus dem Mitschnitt
 

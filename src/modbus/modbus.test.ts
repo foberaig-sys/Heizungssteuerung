@@ -126,6 +126,7 @@ test('Heizungs-Zustand kommt über Modbus wie über die WebHMI', async () => {
       power: 382,
       fan: 50,
       pump: 75,
+      compressor: undefined, // gibt es über Modbus nicht
     });
     assert.equal(isHeatPumpRunning(s.heatPump), true);
 

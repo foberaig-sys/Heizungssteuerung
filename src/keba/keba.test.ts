@@ -85,6 +85,11 @@ test('baut den Anlagenzustand zusammen', async () => {
     [`${P}.hotWaterTank[0].topTemp.values.actValue`]: '47.1',
     [`${P}.hotWaterTank[0].param.normalSetTempMax.value`]: '50',
     [`${P}.hotWaterTank[0].param.operatingMode`]: '1',
+    // Werte aus dem Statusbericht, aufgenommen während die Wärmepumpe lief.
+    [`${P}.heatpump[0].ElectricEnergyMeter.values.power`]: '636.34625',
+    [`${P}.heatpump[0].Source.values.setValueScaled`]: '0.34999999',
+    [`${P}.heatpump[0].CircPump.values.setValueScaled`]: '0.64200872',
+    [`${P}.heatpump[0].Compressor.values.setValueScaled`]: '0.34999999',
   };
   const post: RawPost = async (_path, body) => {
     const requested = JSON.parse(body) as { name: string; attr?: string }[];
@@ -107,6 +112,11 @@ test('baut den Anlagenzustand zusammen', async () => {
   assert.equal(s.hotWaterTanks[0].name, 'Warmwasser');
   assert.equal(s.hotWaterTanks[0].temperature, 47.1);
   assert.equal(s.hotWaterTanks[0].operatingMode, 1);
+  assert.equal(s.heatPump?.power, 636.34625);
+  assert.equal(s.heatPump?.fan, 35);
+  assert.equal(s.heatPump?.pump, 64.2);
+  assert.equal(s.heatPump?.compressor, 35);
+  assert.equal(isHeatPumpRunning(s.heatPump), true);
 });
 
 test('Bridge: injiziertes Skript ruft fetch auf und meldet die Antwort zurück', async () => {
@@ -176,6 +186,7 @@ test('erkennt, ob die Wärmepumpe läuft (Werte aus den Scans)', () => {
   assert.equal(isHeatPumpRunning({ power: 3, fan: 0, pump: 0 }), false); // Stillstand
   assert.equal(isHeatPumpRunning({ power: 804, fan: 48, pump: 53 }), true);
   assert.equal(isHeatPumpRunning({ fan: 50 }), true);
+  assert.equal(isHeatPumpRunning({ compressor: 35 }), true);
   assert.equal(isHeatPumpRunning({ flowTemperature: 40 }), undefined);
   assert.equal(isHeatPumpRunning(undefined), undefined);
 });

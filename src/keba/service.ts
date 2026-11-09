@@ -40,9 +40,10 @@ export interface HeatPumpStatus {
   bufferMidTemperature?: number;
   /** Aktuelle Leistungsaufnahme in W. */
   power?: number;
-  /** Lüfter bzw. Umwälzpumpe in %. */
+  /** Lüfter, Umwälzpumpe und Kompressor in %. */
   fan?: number;
   pump?: number;
+  compressor?: number;
 }
 
 export interface HeatingSnapshot {
@@ -111,8 +112,9 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
     bufferTopTemperature: toNumber(v[BT.topTemperature(0)]),
     bufferMidTemperature: toNumber(v[BT.midTemperature(0)]),
     power: toNumber(run[RUN.power(0)]),
-    fan: toNumber(run[RUN.fan(0)]),
-    pump: toNumber(run[RUN.pump(0)]),
+    fan: percent(run[RUN.fan(0)]),
+    pump: percent(run[RUN.pump(0)]),
+    compressor: percent(run[RUN.compressor(0)]),
   };
 
   return {
@@ -125,6 +127,12 @@ export async function loadSnapshot(client: KebaTransport, now = new Date()): Pro
   };
 }
 
+/** Anteil 0…1 → Prozent, auf eine Nachkommastelle. */
+function percent(v: KebaVariable | undefined): number | undefined {
+  const n = toNumber(v);
+  return n === undefined ? undefined : Math.round(n * 1000) / 10;
+}
+
 // MARK: Läuft die Wärmepumpe?
 
 /** Im Stillstand zieht die Wärmepumpe nur ein paar Watt (Scans: 3 W), im Betrieb mehrere hundert. */
@@ -132,11 +140,12 @@ const RUNNING_POWER_W = 100;
 
 /**
  * true = Kompressor läuft, false = steht, undefined = unbekannt (keine Betriebswerte).
- * Der Lüfter einer Luft-Wärmepumpe dreht nur im Betrieb – das zählt auch, falls die Leistung fehlt.
+ * Der Lüfter einer Luft-Wärmepumpe dreht nur im Betrieb – das zählt auch, falls die Leistung fehlt;
+ * über den Fernzugriff verrät es zusätzlich die Kompressor-Ansteuerung.
  */
 export function isHeatPumpRunning(hp: HeatPumpStatus | undefined): boolean | undefined {
-  if (hp?.power === undefined && hp?.fan === undefined) return undefined;
-  return (hp.power ?? 0) >= RUNNING_POWER_W || (hp.fan ?? 0) > 0;
+  if (hp?.power === undefined && hp?.fan === undefined && hp?.compressor === undefined) return undefined;
+  return (hp.power ?? 0) >= RUNNING_POWER_W || (hp.fan ?? 0) > 0 || (hp.compressor ?? 0) > 0;
 }
 
 // MARK: Welcher Sollwert gilt gerade?
